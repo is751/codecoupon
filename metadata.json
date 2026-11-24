@@ -1,0 +1,6 @@
+{
+  "name": "CodeCoupon",
+  "description": "Discover and copy the latest verified promo codes, discount coupons, and online shopping deals with real-time search and category filtering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
