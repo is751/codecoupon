@@ -1,12 +1,15 @@
 import React from 'react';
-import { SlidersHorizontal, ArrowUpDown, Sparkles, Tag, Percent, Truck, RotateCcw } from 'lucide-react';
+import { ArrowUpDown, Sparkles, Tag, Percent, Truck, RotateCcw, Globe } from 'lucide-react';
 import { DealType, SortOption } from '../types/coupon';
+import { COUNTRIES, CountryFilter } from '../utils/countries';
 
 interface DealControlsBarProps {
   dealType: DealType;
   setDealType: (type: DealType) => void;
   sortBy: SortOption;
   setSortBy: (sort: SortOption) => void;
+  selectedCountry: CountryFilter;
+  setSelectedCountry: (country: CountryFilter) => void;
   totalResults: number;
   hasActiveFilters: boolean;
   onResetFilters: () => void;
@@ -17,12 +20,14 @@ export const DealControlsBar: React.FC<DealControlsBarProps> = ({
   setDealType,
   sortBy,
   setSortBy,
+  selectedCountry,
+  setSelectedCountry,
   totalResults,
   hasActiveFilters,
   onResetFilters,
 }) => {
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-4 border-b border-slate-200">
+    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 py-4 border-b border-slate-200">
       
       {/* Left: Deal Type Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -86,10 +91,10 @@ export const DealControlsBar: React.FC<DealControlsBarProps> = ({
         </button>
       </div>
 
-      {/* Right: Results Count, Reset, and Sort Dropdown */}
-      <div className="flex items-center gap-4 shrink-0">
+      {/* Right: Results Count, Country Filter, Reset, and Sort Dropdown */}
+      <div className="flex flex-wrap items-center gap-3 shrink-0">
         <div className="text-xs text-slate-500">
-          Showing <span className="font-semibold text-slate-900 font-mono tabular-nums">{totalResults}</span> coupons
+          Showing <span className="font-semibold text-slate-900 font-mono tabular-nums">{totalResults}</span> active offers
         </div>
 
         {hasActiveFilters && (
@@ -102,14 +107,32 @@ export const DealControlsBar: React.FC<DealControlsBarProps> = ({
           </button>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
+          <Globe className="w-3.5 h-3.5 text-slate-400" />
+          <select
+            value={selectedCountry}
+            onChange={(e) => setSelectedCountry(e.target.value as CountryFilter)}
+            aria-label="Filter deals by country"
+            className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg py-1.5 pl-2.5 pr-6 focus:outline-none focus:ring-1 focus:ring-[#FF6600] cursor-pointer"
+          >
+            <option value="ALL">All Countries</option>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5">
           <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg py-1.5 pl-2.5 pr-7 focus:outline-none focus:ring-1 focus:ring-[#FF6600] cursor-pointer"
+            aria-label="Sort offers"
+            className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg py-1.5 pl-2.5 pr-6 focus:outline-none focus:ring-1 focus:ring-[#FF6600] cursor-pointer"
           >
-            <option value="popular">Most Popular</option>
+            <option value="featured">Featured Offers</option>
             <option value="discount">Highest Discount</option>
             <option value="newest">Newly Added</option>
             <option value="expiring">Expiring Soon</option>

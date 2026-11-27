@@ -14,7 +14,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Category, Coupon, StoreInfo } from '../../types/coupon';
-import { computeHoursLeftFromDate, getExpiryInfo } from '../../utils/expiry';
+import { COUNTRIES, CountryCode } from '../../utils/countries';
+import { computeHoursLeftFromDate, getExpiryInfo, isCouponExpired } from '../../utils/expiry';
 
 interface EditCouponModalProps {
   isOpen: boolean;
@@ -71,8 +72,8 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
   const [minSpend, setMinSpend] = useState('');
   const [termsStr, setTermsStr] = useState('');
   const [verified, setVerified] = useState(true);
-  const [verifiedText, setVerifiedText] = useState('Verified & Working');
-  const [successRate, setSuccessRate] = useState(98);
+  const [verifiedText, setVerifiedText] = useState('Checked Nov 2026');
+  const [selectedCountries, setSelectedCountries] = useState<CountryCode[]>(['GLOBAL']);
   const [featured, setFeatured] = useState(false);
   const [exclusive, setExclusive] = useState(false);
 
@@ -82,6 +83,18 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
   const [selectedBg, setSelectedBg] = useState('bg-[#FF6600]');
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleCountry = (countryCode: CountryCode) => {
+    setSelectedCountries((prev) => {
+      if (countryCode === 'GLOBAL') return ['GLOBAL'];
+      const withoutGlobal = prev.filter((c) => c !== 'GLOBAL');
+      const exists = withoutGlobal.includes(countryCode);
+      const next = exists
+        ? withoutGlobal.filter((c) => c !== countryCode)
+        : [...withoutGlobal, countryCode];
+      return next.length > 0 ? next : ['GLOBAL'];
+    });
+  };
 
   // Sync state whenever the selected coupon changes
   useEffect(() => {
@@ -102,8 +115,10 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
       setMinSpend(coupon.minSpend || '');
       setTermsStr(coupon.terms ? coupon.terms.join('\n') : '');
       setVerified(coupon.verified ?? true);
-      setVerifiedText(coupon.verifiedText || 'Verified & Working');
-      setSuccessRate(coupon.successRate ?? 98);
+      setVerifiedText(coupon.verifiedText || 'Checked Nov 2026');
+      setSelectedCountries(
+        coupon.countries && coupon.countries.length > 0 ? coupon.countries : ['GLOBAL']
+      );
       setFeatured(Boolean(coupon.featured));
       setExclusive(Boolean(coupon.exclusive));
 
@@ -162,6 +177,7 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
     const finalLogo = logoPreview || (logoUrl.trim() ? logoUrl.trim() : undefined);
     const resolvedSlug = storeSlug || coupon.storeSlug || store.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanedExpiry = expiryDate.trim() || undefined;
+    const expired = isCouponExpired(cleanedExpiry, false);
 
     const updatedCoupon: Coupon = {
       ...coupon,
@@ -177,14 +193,15 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
       discountBadge: discountBadge.trim() || 'Deal',
       discountType,
       discountValueNum: Number(discountValueNum) || 0,
-      code: isDeal ? undefined : (code.trim() ? code.trim().toUpperCase() : undefined),
+      code: isDeal ? undefined : code.trim() ? code.trim().toUpperCase() : undefined,
       isDeal,
       storeUrl: storeUrl.trim() || coupon.storeUrl,
       verified,
-      verifiedText: verifiedText.trim() || 'Verified',
-      successRate: Math.min(100, Math.max(1, Number(successRate) || 95)),
+      verifiedText: expired ? 'Expired' : verifiedText.trim() || 'Active Offer',
+      isExpired: expired,
       expiryDate: cleanedExpiry,
       expiryHoursLeft: computeHoursLeftFromDate(cleanedExpiry),
+      countries: selectedCountries,
       minSpend: minSpend.trim() ? minSpend.trim() : undefined,
       tags: parsedTags.length > 0 ? parsedTags : coupon.tags,
       terms: parsedTerms.length > 0 ? parsedTerms : coupon.terms,
@@ -487,10 +504,36 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
                   type="url"
                   value={storeUrl}
                   onChange={(e) => setStoreUrl(e.target.value)}
-                  placeholder="https://www.example.com"
+                  placeholder="https://www.merchant-store.com"
                   className="w-full pl-9 pr-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Country / Region Targeting */}
+          <div className="p-3.5 rounded-xl bg-[#121824] border border-slate-800 space-y-2">
+            <label className="text-xs font-bold text-slate-300 block">
+              Target Countries / Regions
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {COUNTRIES.map((country) => {
+                const isSelected = selectedCountries.includes(country.code);
+                return (
+                  <button
+                    key={country.code}
+                    type="button"
+                    onClick={() => toggleCountry(country.code)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                        : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:border-slate-500'
+                    }`}
+                  >
+                    {country.shortLabel}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -642,7 +685,7 @@ export const EditCouponModal: React.FC<EditCouponModalProps> = ({
                 className="w-4 h-4 rounded text-[#FF6600] focus:ring-0 bg-[#0B0F17] border-slate-700"
               />
               <span className="text-xs font-semibold text-slate-200">
-                Staff Verified
+                Active Status
               </span>
             </label>
 

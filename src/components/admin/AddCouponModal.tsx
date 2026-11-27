@@ -1,7 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { X, Tag, Plus, Check, Upload, Image as ImageIcon, Link2 } from 'lucide-react';
+import { X, Plus, Upload, Image as ImageIcon, Link2, Globe } from 'lucide-react';
 import { Category, Coupon } from '../../types/coupon';
-import { computeHoursLeftFromDate, getExpiryInfo } from '../../utils/expiry';
+import { COUNTRIES, CountryCode } from '../../utils/countries';
+import { computeHoursLeftFromDate, getExpiryInfo, isCouponExpired } from '../../utils/expiry';
+import { resolveMerchantUrl } from '../../utils/url';
 
 interface AddCouponModalProps {
   isOpen: boolean;
@@ -46,16 +48,27 @@ export const AddCouponModal: React.FC<AddCouponModalProps> = ({
   const [category, setCategory] = useState<Category>('Tech & Electronics');
   const [expiryDate, setExpiryDate] = useState('');
   const [storeUrl, setStoreUrl] = useState('');
-  const [tagsStr, setTagsStr] = useState('Verified, Trending Deal');
+  const [tagsStr, setTagsStr] = useState('Promo Code');
+  const [selectedCountries, setSelectedCountries] = useState<CountryCode[]>(['GLOBAL']);
   const [logoError, setLogoError] = useState<string | null>(null);
 
-  // Coupon / Brand Logo states
   const [logoUrl, setLogoUrl] = useState('');
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [selectedBg, setSelectedBg] = useState('bg-[#FF6600]');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // File Upload Handler converting image file to Base64
+  const toggleCountry = (countryCode: CountryCode) => {
+    setSelectedCountries((prev) => {
+      if (countryCode === 'GLOBAL') return ['GLOBAL'];
+      const withoutGlobal = prev.filter((c) => c !== 'GLOBAL');
+      const exists = withoutGlobal.includes(countryCode);
+      const next = exists
+        ? withoutGlobal.filter((c) => c !== countryCode)
+        : [...withoutGlobal, countryCode];
+      return next.length > 0 ? next : ['GLOBAL'];
+    });
+  };
+
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -86,17 +99,6 @@ export const AddCouponModal: React.FC<AddCouponModalProps> = ({
     e.preventDefault();
     if (!store.trim() || !title.trim()) return;
 
-    const bgColors = [
-      'bg-amber-500',
-      'bg-indigo-600',
-      'bg-blue-600',
-      'bg-emerald-600',
-      'bg-zinc-950',
-      'bg-orange-500',
-      'bg-red-600',
-    ];
-    const randomBg = bgColors[Math.floor(Math.random() * bgColors.length)];
-
     const tagsArray = tagsStr
       .split(',')
       .map((t) => t.trim())
@@ -104,52 +106,52 @@ export const AddCouponModal: React.FC<AddCouponModalProps> = ({
 
     const finalLogo = logoPreview || (logoUrl.trim() ? logoUrl.trim() : undefined);
     const cleanedExpiry = expiryDate.trim() || undefined;
+    const expired = isCouponExpired(cleanedExpiry, false);
+    const slug = store.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 
     const newCoupon: Coupon = {
       id: `admin-c-${Date.now()}`,
       store: store.trim(),
-      storeSlug: store.trim().toLowerCase().replace(/[^a-z0-9]/g, ''),
+      storeSlug: slug,
       storeLogoBg: selectedBg,
       storeLogoText: store.trim().slice(0, 4).toUpperCase(),
       storeLogoUrl: finalLogo,
       logoUrl: finalLogo,
       category,
       title: title.trim(),
-      description: description.trim() || `Verified discount offer for ${store.trim()}.`,
-      discountBadge: discountBadge.trim() || 'SPECIAL DEAL',
+      description:
+        description.trim() ||
+        `Promotional offer for ${store.trim()}. Check store terms at checkout.`,
+      discountBadge: discountBadge.trim() || 'SPECIAL OFFER',
       discountType: discountBadge.includes('%') ? 'percentage' : 'fixed',
-      discountValueNum: parseInt(discountBadge.replace(/[^0-9]/g, '')) || 20,
-      code: isDeal ? '' : code.trim().toUpperCase(),
+      discountValueNum: parseInt(discountBadge.replace(/[^0-9]/g, ''), 10) || 20,
+      code: isDeal ? undefined : code.trim().toUpperCase(),
       isDeal,
-      storeUrl: storeUrl.trim() || `https://www.${store.toLowerCase().replace(/\s+/g, '')}.com`,
+      storeUrl: resolveMerchantUrl(storeUrl, undefined, slug),
       verified: true,
-      verifiedText: 'Verified by Admin',
-      successRate: 100,
-      usesCount: 0,
+      verifiedText: expired ? 'Expired' : 'Active Offer',
+      isExpired: expired,
       expiryDate: cleanedExpiry,
       expiryHoursLeft: computeHoursLeftFromDate(cleanedExpiry),
-      minSpend: 'No minimum spend required',
-      terms: ['Admin verified promo offer', 'Valid on qualifying purchases'],
-      exclusive: true,
+      countries: selectedCountries,
+      minSpend: 'Check merchant terms at checkout',
+      terms: ['Valid on qualifying purchases on the official store website'],
+      exclusive: false,
       featured: true,
       trending: true,
       editorPicked: true,
-      tags: tagsArray.length > 0 ? tagsArray : ['Verified', 'Exclusive'],
-      upvotes: 0,
-      downvotes: 0,
+      tags: tagsArray.length > 0 ? tagsArray : ['Active Offer'],
       isCommunity: true,
-      averageRating: 5.0,
-      reviews: [],
     };
 
     onAddCoupon(newCoupon);
-    // Reset state
     setStore('');
     setTitle('');
     setDescription('');
     setCode('');
     setLogoUrl('');
     setLogoPreview(null);
+    setSelectedCountries(['GLOBAL']);
     onClose();
   };
 
@@ -456,6 +458,32 @@ export const AddCouponModal: React.FC<AddCouponModalProps> = ({
               placeholder="e.g. Electronics, Limited Time, Verified, Free Shipping"
               className="w-full px-3.5 py-2.5 bg-[#0B0F17] border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
             />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-[#FF6600]" />
+              <span>Target Countries / Regions</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {COUNTRIES.map((country) => {
+                const isSelected = selectedCountries.includes(country.code);
+                return (
+                  <button
+                    key={country.code}
+                    type="button"
+                    onClick={() => toggleCountry(country.code)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                        : 'bg-[#0B0F17] text-slate-400 border-slate-700 hover:text-white'
+                    }`}
+                  >
+                    {country.code === 'GLOBAL' ? 'Global' : `${country.code} · ${country.shortLabel}`}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div>

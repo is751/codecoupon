@@ -11,7 +11,6 @@ import {
   Search,
   Bell,
   Plus,
-  MousePointerClick,
   ExternalLink,
   Edit3,
   Copy,
@@ -25,7 +24,6 @@ import {
   Layers,
   Check,
   BookOpen,
-  Star,
   PauseCircle,
   Menu,
   X,
@@ -35,9 +33,17 @@ import {
   GripVertical,
   Save,
   RotateCcw,
+  Globe,
+  Clock,
 } from 'lucide-react';
 import { Category, Coupon, StoreInfo, BlogPost } from '../../types/coupon';
-import { computeHoursLeftFromDate } from '../../utils/expiry';
+import {
+  computeHoursLeftFromDate,
+  getEffectiveExpiryDisplay,
+  isCouponExpired,
+} from '../../utils/expiry';
+import { formatCountriesBadge } from '../../utils/countries';
+import { resolveMerchantUrl } from '../../utils/url';
 import { STORES_DATA } from '../../data/coupons';
 import { BLOG_POSTS } from '../../data/blogs';
 import { CouponActionModal } from './CouponActionModal';
@@ -139,7 +145,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (onNavChange) {
       onNavChange(nav);
     } else {
-      window.location.hash = nav === 'dashboard' ? '#/admin' : `#/admin/${nav}`;
+      window.history.pushState(null, '', nav === 'dashboard' ? '/admin' : `/admin/${nav}`);
     }
   };
 
@@ -162,7 +168,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [storeCategoryFilter, setStoreCategoryFilter] = useState<string>('All');
   const [couponCategoryFilter, setCouponCategoryFilter] = useState<string>('All');
   const [couponSortBy, setCouponSortBy] = useState<
-    'newest' | 'popular' | 'discount' | 'expiring' | 'store' | 'status'
+    'newest' | 'active' | 'discount' | 'expiring' | 'store' | 'status'
   >('newest');
 
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -267,8 +273,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (couponSortBy === 'newest') return filtered;
 
     return [...filtered].sort((a, b) => {
-      if (couponSortBy === 'popular') {
-        return (b.usesCount || 0) - (a.usesCount || 0);
+      if (couponSortBy === 'active') {
+        const aActive = a.verified && !isCouponExpired(a.expiryDate, a.isExpired) ? 1 : 0;
+        const bActive = b.verified && !isCouponExpired(b.expiryDate, b.isExpired) ? 1 : 0;
+        return bActive - aActive;
       }
       if (couponSortBy === 'discount') {
         return (b.discountValueNum || 0) - (a.discountValueNum || 0);
@@ -302,53 +310,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, [allBlogsList, blogCategoryFilter, searchQuery]);
 
-  // Real live KPI metrics
+  // Authentic live catalog metrics
   const kpis = useMemo(() => {
-    const verifiedCount = coupons.filter((c) => c.verified).length;
-    const pausedOrExpiring = coupons.filter(
-      (c) => !c.verified || (c.expiryHoursLeft !== undefined && c.expiryHoursLeft <= 24)
+    const expiredCount = coupons.filter((c) => isCouponExpired(c.expiryDate, c.isExpired)).length;
+    const activeCount = coupons.filter(
+      (c) => c.verified && !isCouponExpired(c.expiryDate, c.isExpired)
     ).length;
-    const totalRedemptions = coupons.reduce((sum, c) => sum + (c.usesCount || 0), 0);
-    const avgSuccess =
-      coupons.length > 0
-        ? Math.round(coupons.reduce((sum, c) => sum + (c.successRate || 95), 0) / coupons.length)
-        : 0;
-    const avgStoreRating =
-      storesList.length > 0
-        ? (storesList.reduce((sum, s) => sum + (s.rating || 4.8), 0) / storesList.length).toFixed(1)
-        : '0.0';
+    const pausedCount = coupons.filter(
+      (c) => !c.verified && !isCouponExpired(c.expiryDate, c.isExpired)
+    ).length;
+    const promoCodeCount = coupons.filter(
+      (c) => !c.isDeal && Boolean(c.code) && !isCouponExpired(c.expiryDate, c.isExpired)
+    ).length;
+    const directDealCount = coupons.filter(
+      (c) => c.isDeal && !isCouponExpired(c.expiryDate, c.isExpired)
+    ).length;
+    const internationalStores = storesList.filter(
+      (s) => s.countries && s.countries.length > 0 && !s.countries.includes('GLOBAL')
+    ).length;
     return {
       totalCoupons: coupons.length,
-      verifiedCount,
-      pausedOrExpiring,
-      totalRedemptions,
-      avgSuccess,
-      avgStoreRating,
+      activeCount,
+      expiredCount,
+      pausedCount,
+      promoCodeCount,
+      directDealCount,
+      internationalStores,
       totalStores: storesList.length,
       totalBlogs: allBlogsList.length,
     };
   }, [coupons, storesList, allBlogsList]);
 
-  // Dynamic store breakdown donut from real coupons
-  const storeClickShare = useMemo(() => {
+  // Dynamic store breakdown by active offer count
+  const storeOfferShare = useMemo(() => {
     const totals = new Map<string, number>();
-    coupons.forEach((c) => {
-      totals.set(c.store, (totals.get(c.store) || 0) + Math.max(1, c.usesCount || 0));
-    });
+    coupons
+      .filter((c) => !isCouponExpired(c.expiryDate, c.isExpired))
+      .forEach((c) => {
+        totals.set(c.store, (totals.get(c.store) || 0) + 1);
+      });
     const sorted = Array.from(totals.entries())
-      .map(([name, clicks]) => ({ name, clicks }))
-      .sort((a, b) => b.clicks - a.clicks);
-    const grandTotal = sorted.reduce((sum, item) => sum + item.clicks, 0) || 1;
+      .map(([name, offers]) => ({ name, offers }))
+      .sort((a, b) => b.offers - a.offers);
+    const grandTotal = sorted.reduce((sum, item) => sum + item.offers, 0) || 1;
     const top4 = sorted.slice(0, 4);
-    const othersClicks = sorted.slice(4).reduce((sum, item) => sum + item.clicks, 0);
+    const othersOffers = sorted.slice(4).reduce((sum, item) => sum + item.offers, 0);
     const segments = [
       ...top4,
-      ...(othersClicks > 0 ? [{ name: 'Others', clicks: othersClicks }] : []),
+      ...(othersOffers > 0 ? [{ name: 'Others', offers: othersOffers }] : []),
     ];
 
     let offset = 0;
     return segments.map((seg, idx) => {
-      const pct = Math.max(1, Math.round((seg.clicks / grandTotal) * 100));
+      const pct = Math.max(1, Math.round((seg.offers / grandTotal) * 100));
       const dashOffset = -offset;
       offset += pct;
       return {
@@ -365,21 +379,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return ALL_CATEGORIES.map((cat) => {
       const catCoupons = coupons.filter((c) => c.category === cat);
       const catStores = storesList.filter((s) => s.category === cat);
-      const totalUses = catCoupons.reduce((sum, c) => sum + (c.usesCount || 0), 0);
+      const activeOffers = catCoupons.filter(
+        (c) => c.verified && !isCouponExpired(c.expiryDate, c.isExpired)
+      ).length;
       return {
         name: cat,
         couponCount: catCoupons.length,
         storeCount: catStores.length,
-        totalUses,
+        activeOffers,
       };
-    }).sort((a, b) => b.couponCount - a.couponCount || b.totalUses - a.totalUses);
+    }).sort((a, b) => b.couponCount - a.couponCount || b.activeOffers - a.activeOffers);
   }, [coupons, storesList]);
 
   // Notifications derived from real store & coupon state
   const notifications = useMemo(() => {
     const items: { id: string; title: string; detail: string; actionNav: AdminNav }[] = [];
+    if (kpis.expiredCount > 0) {
+      items.push({
+        id: 'notif-expired',
+        title: `${kpis.expiredCount} expired offer${kpis.expiredCount > 1 ? 's' : ''} hidden from public view`,
+        detail: 'Automatically filtered out of active storefront listings.',
+        actionNav: 'coupons',
+      });
+    }
     const expiring = coupons.filter(
-      (c) => c.expiryHoursLeft !== undefined && c.expiryHoursLeft <= 24
+      (c) => !isCouponExpired(c.expiryDate, c.isExpired) && c.expiryHoursLeft !== undefined && c.expiryHoursLeft <= 24
     );
     if (expiring.length > 0) {
       items.push({
@@ -389,32 +413,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         actionNav: 'coupons',
       });
     }
-    const paused = coupons.filter((c) => !c.verified);
-    if (paused.length > 0) {
+    if (kpis.pausedCount > 0) {
       items.push({
         id: 'notif-paused',
-        title: `${paused.length} coupon${paused.length > 1 ? 's' : ''} paused / unverified`,
+        title: `${kpis.pausedCount} coupon${kpis.pausedCount > 1 ? 's' : ''} currently paused`,
         detail: 'Review status toggles in Coupons Management.',
         actionNav: 'coupons',
       });
     }
     items.push({
       id: 'notif-catalog',
-      title: `${storesList.length} partner stores & ${allBlogsList.length} articles active`,
-      detail: `${kpis.totalRedemptions.toLocaleString()} total redemptions recorded.`,
+      title: `${storesList.length} stores & ${allBlogsList.length} guides live`,
+      detail: `${kpis.activeCount} active offers currently published.`,
       actionNav: 'analytics',
     });
     return items;
-  }, [coupons, storesList.length, allBlogsList.length, kpis.totalRedemptions]);
+  }, [coupons, storesList.length, allBlogsList.length, kpis]);
 
   const adminInitial = (currentUser?.name || 'Admin').slice(0, 1).toUpperCase();
 
   const handleCopyAffiliateUrl = (coupon: Coupon) => {
-    const url = /^https?:\/\//i.test(coupon.storeUrl) ? coupon.storeUrl : `https://${coupon.storeUrl}`;
+    const url = resolveMerchantUrl(coupon.storeUrl, undefined, coupon.storeSlug);
     navigator.clipboard?.writeText(url).catch(() => {});
     setCopiedAffiliateId(coupon.id);
     if (onShowToast) {
-      onShowToast('Affiliate Link Copied', `${coupon.store} tracking URL copied to clipboard.`);
+      onShowToast('Affiliate Link Copied', `${coupon.store} destination URL copied to clipboard.`);
     }
     setTimeout(() => setCopiedAffiliateId(null), 2000);
   };
@@ -648,16 +671,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <Rocket className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-white font-heading">Performance Report</h4>
+              <h4 className="text-xs font-bold text-white font-heading">Catalog Summary</h4>
               <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
-                Track store click-throughs and verified code performance.
+                Monitor active offers, country targeting, and expiry schedules.
               </p>
             </div>
             <button
               onClick={() => setActiveNav('analytics')}
               className="w-full py-2 px-3 bg-[#FF6600] hover:bg-[#FA5A00] text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer"
             >
-              Open Analytics
+              Open Summary
             </button>
           </div>
         </div>
@@ -1016,11 +1039,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 transition-colors" />
                   </div>
                   <div className="text-2xl font-black text-white font-mono tabular-nums">
-                    {kpis.totalCoupons}
+                    {kpis.activeCount}
                   </div>
-                  <div className="text-xs font-bold text-slate-200 mt-0.5">Coupons & Deals</div>
+                  <div className="text-xs font-bold text-slate-200 mt-0.5">Active Live Offers</div>
                   <div className="text-[11px] text-emerald-400 mt-1">
-                    {kpis.verifiedCount} verified live
+                    {kpis.expiredCount > 0 ? `${kpis.expiredCount} expired hidden` : 'All active offers'}
                   </div>
                 </button>
 
@@ -1030,16 +1053,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   <div className="flex items-center justify-between mb-3">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center">
-                      <MousePointerClick className="w-5 h-5" />
+                      <Globe className="w-5 h-5" />
                     </div>
                     <ArrowUpRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 transition-colors" />
                   </div>
                   <div className="text-2xl font-black text-white font-mono tabular-nums">
-                    {kpis.totalRedemptions.toLocaleString()}
+                    {kpis.promoCodeCount}
                   </div>
-                  <div className="text-xs font-bold text-slate-200 mt-0.5">Total Uses</div>
+                  <div className="text-xs font-bold text-slate-200 mt-0.5">Promo Codes</div>
                   <div className="text-[11px] text-slate-400 mt-1">
-                    {kpis.avgSuccess}% avg success rate
+                    + {kpis.directDealCount} direct deals
                   </div>
                 </button>
 
@@ -1132,22 +1155,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   {coupon.discountBadge}
                                 </td>
                                 <td className="py-3 px-2.5">
-                                  <button
-                                    onClick={() => onToggleCouponStatus(coupon.id)}
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors ${
-                                      coupon.verified
-                                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
-                                        : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
-                                    }`}
-                                    title="Click to toggle status"
-                                  >
-                                    <span
-                                      className={`w-1.5 h-1.5 rounded-full ${
-                                        coupon.verified ? 'bg-emerald-400' : 'bg-amber-400'
+                                  {isCouponExpired(coupon.expiryDate, coupon.isExpired) ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-500/15 text-rose-400 border-rose-500/30">
+                                      <Clock className="w-3 h-3" />
+                                      <span>Expired</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => onToggleCouponStatus(coupon.id)}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors ${
+                                        coupon.verified
+                                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                                          : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
                                       }`}
-                                    />
-                                    <span>{coupon.verified ? 'Verified' : 'Paused'}</span>
-                                  </button>
+                                      title="Click to toggle status"
+                                    >
+                                      <span
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                          coupon.verified ? 'bg-emerald-400' : 'bg-amber-400'
+                                        }`}
+                                      />
+                                      <span>{coupon.verified ? 'Active' : 'Paused'}</span>
+                                    </button>
+                                  )}
                                 </td>
                                 <td className="py-3 px-2.5 text-right">
                                   <div className="flex items-center justify-end gap-1">
@@ -1310,12 +1340,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="p-4 rounded-xl bg-[#0E131F] border border-slate-800/80">
                   <span className="text-[11px] text-slate-400 block">Active Offers</span>
-                  <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">{coupons.length}</div>
+                  <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">{kpis.activeCount}</div>
                 </div>
                 <div className="p-4 rounded-xl bg-[#0E131F] border border-slate-800/80">
-                  <span className="text-[11px] text-slate-400 block">Average Rating</span>
-                  <div className="text-xl font-black text-amber-400 font-mono mt-0.5">
-                    {kpis.avgStoreRating} / 5.0
+                  <span className="text-[11px] text-slate-400 block">Expired Auto-Hidden</span>
+                  <div className="text-xl font-black text-rose-400 font-mono mt-0.5">
+                    {kpis.expiredCount}
                   </div>
                 </div>
                 <div className="p-4 rounded-xl bg-[#0E131F] border border-slate-800/80">
@@ -1408,12 +1438,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           {store.description}
                         </p>
 
-                        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+                        <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 gap-2">
                           <span className="font-mono text-slate-300">
-                            <strong className="text-white">{storeCoupons.length}</strong> coupons linked
+                            <strong className="text-white">
+                              {storeCoupons.filter((c) => !isCouponExpired(c.expiryDate, c.isExpired)).length}
+                            </strong>{' '}
+                            active offers
                           </span>
-                          <span className="flex items-center gap-1 text-amber-400 font-bold font-mono">
-                            <Star className="w-3.5 h-3.5 fill-amber-400" /> {store.rating || 4.8}
+                          <span className="flex items-center gap-1 text-slate-300 font-semibold text-[11px] truncate">
+                            <Globe className="w-3 h-3 text-[#FF6600] shrink-0" />
+                            <span>{formatCountriesBadge(store.countries)}</span>
                           </span>
                         </div>
                       </div>
@@ -1421,7 +1455,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="mt-4 pt-3 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2.5">
                           <a
-                            href={/^https?:\/\//i.test(store.website) ? store.website : `https://${store.website}`}
+                            href={resolveMerchantUrl(store.website, undefined, store.slug)}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors"
@@ -1530,18 +1564,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       value={couponSortBy}
                       onChange={(e) =>
                         setCouponSortBy(
-                          e.target.value as 'newest' | 'popular' | 'discount' | 'expiring' | 'store' | 'status'
+                          e.target.value as 'newest' | 'active' | 'discount' | 'expiring' | 'store' | 'status'
                         )
                       }
                       aria-label="Sort coupons"
                       className="bg-transparent text-xs text-white font-semibold focus:outline-none cursor-pointer"
                     >
                       <option value="newest" className="bg-[#121824] text-white">Sort: Newly Added</option>
-                      <option value="popular" className="bg-[#121824] text-white">Sort: Most Used</option>
+                      <option value="active" className="bg-[#121824] text-white">Sort: Active First</option>
                       <option value="discount" className="bg-[#121824] text-white">Sort: Highest Discount</option>
                       <option value="expiring" className="bg-[#121824] text-white">Sort: Expiring Soon</option>
                       <option value="store" className="bg-[#121824] text-white">Sort: Store (A-Z)</option>
-                      <option value="status" className="bg-[#121824] text-white">Sort: Verified First</option>
+                      <option value="status" className="bg-[#121824] text-white">Sort: Status</option>
                     </select>
                   </div>
 
@@ -1569,7 +1603,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-3 px-3">Title & Tags</th>
                       <th className="py-3 px-3">Discount</th>
                       <th className="py-3 px-3">Code</th>
-                      <th className="py-3 px-3">Uses</th>
+                      <th className="py-3 px-3">Region & Expiry</th>
                       <th className="py-3 px-3">Status</th>
                       <th className="py-3 px-3 text-right">Actions</th>
                     </tr>
@@ -1578,6 +1612,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {displayedCoupons.map((coupon) => {
                       const cLogo = coupon.logoUrl || coupon.storeLogoUrl;
                       const isConfirming = confirmDeleteId === `full-c-${coupon.id}`;
+                      const expired = isCouponExpired(coupon.expiryDate, coupon.isExpired);
                       return (
                         <tr key={coupon.id} className="hover:bg-slate-900/40 transition-colors">
                           <td className="py-3 px-3">
@@ -1624,26 +1659,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <span className="text-slate-500 italic">Direct Deal</span>
                             )}
                           </td>
-                          <td className="py-3 px-3 font-mono text-slate-300">
-                            {coupon.usesCount?.toLocaleString() || 0}
+                          <td className="py-3 px-3 text-[11px]">
+                            <div className="text-slate-200 font-semibold">
+                              {formatCountriesBadge(coupon.countries)}
+                            </div>
+                            <div className={expired ? 'text-rose-400 font-semibold' : 'text-slate-400'}>
+                              {getEffectiveExpiryDisplay(coupon.expiryDate, coupon.isExpired).badgeText}
+                            </div>
                           </td>
                           <td className="py-3 px-3">
-                            <button
-                              onClick={() => onToggleCouponStatus(coupon.id)}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors ${
-                                coupon.verified
-                                  ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
-                                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
-                              }`}
-                              title="Click to toggle Verified / Paused"
-                            >
-                              {coupon.verified ? (
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                              ) : (
-                                <PauseCircle className="w-3 h-3" />
-                              )}
-                              <span>{coupon.verified ? 'Verified' : 'Paused'}</span>
-                            </button>
+                            {expired ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border bg-rose-500/15 text-rose-400 border-rose-500/30">
+                                <Clock className="w-3 h-3" />
+                                <span>Expired</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => onToggleCouponStatus(coupon.id)}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border cursor-pointer transition-colors ${
+                                  coupon.verified
+                                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                                    : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
+                                }`}
+                                title="Click to toggle Active / Paused"
+                              >
+                                {coupon.verified ? (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                ) : (
+                                  <PauseCircle className="w-3 h-3" />
+                                )}
+                                <span>{coupon.verified ? 'Active' : 'Paused'}</span>
+                              </button>
+                            )}
                           </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
@@ -1904,11 +1951,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <div className="text-xs sm:text-sm font-black text-white uppercase leading-tight">
                                 {coupon.discountBadge || (coupon.isDeal ? 'DEAL' : 'OFFER')}
                               </div>
-                              {coupon.featured && (
-                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[9px] font-bold uppercase">
-                                  Popular
+                              {isCouponExpired(coupon.expiryDate, coupon.isExpired) ? (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 text-[9px] font-bold uppercase">
+                                  Expired
                                 </span>
-                              )}
+                              ) : coupon.featured ? (
+                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[9px] font-bold uppercase">
+                                  Featured
+                                </span>
+                              ) : null}
                             </div>
 
                             {/* Store Mini Identity + Offer Title */}
@@ -2219,9 +2270,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                         <div className="p-2 rounded-xl bg-[#121824]">
                           <div className="text-sm font-black text-emerald-400 font-mono">
-                            {cat.totalUses.toLocaleString()}
+                            {cat.activeOffers}
                           </div>
-                          <div className="text-[10px] text-slate-400">Uses</div>
+                          <div className="text-[10px] text-slate-400">Active</div>
                         </div>
                       </div>
                     </div>
@@ -2260,7 +2311,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <h1 className="text-xl font-bold text-white font-heading">Affiliate & Brand Links</h1>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Inspect, copy, or edit destination URLs attached to active store coupons.
+                    Inspect, copy, or edit destination URLs attached to store offers.
                   </p>
                 </div>
                 <button
@@ -2278,14 +2329,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-3 px-3">Store</th>
                       <th className="py-3 px-3">Offer Title</th>
                       <th className="py-3 px-3">Destination URL</th>
-                      <th className="py-3 px-3">Redemptions</th>
+                      <th className="py-3 px-3">Regions & Status</th>
                       <th className="py-3 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
                     {displayedCoupons.map((c) => {
-                      const safeUrl = /^https?:\/\//i.test(c.storeUrl) ? c.storeUrl : `https://${c.storeUrl}`;
+                      const safeUrl = resolveMerchantUrl(c.storeUrl, undefined, c.storeSlug);
                       const isCopied = copiedAffiliateId === c.id;
+                      const expired = isCouponExpired(c.expiryDate, c.isExpired);
                       return (
                         <tr key={c.id} className="hover:bg-slate-900/40 transition-colors">
                           <td className="py-3 px-3 font-bold text-white">{c.store}</td>
@@ -2293,7 +2345,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="py-3 px-3 max-w-xs truncate font-mono text-[11px] text-orange-300">
                             {safeUrl}
                           </td>
-                          <td className="py-3 px-3 font-mono">{c.usesCount.toLocaleString()}</td>
+                          <td className="py-3 px-3 text-[11px]">
+                            <span className="text-slate-300 font-semibold mr-2">
+                              {formatCountriesBadge(c.countries)}
+                            </span>
+                            <span className={expired ? 'text-rose-400 font-bold' : 'text-emerald-400 font-bold'}>
+                              {expired ? 'Expired' : 'Active'}
+                            </span>
+                          </td>
                           <td className="py-3 px-3 text-right">
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -2325,14 +2384,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
 
-          {/* 7. ANALYTICS REPORT VIEW */}
+          {/* 7. CATALOG SUMMARY VIEW */}
           {activeNav === 'analytics' && (
             <div className="space-y-6">
               <div className="p-6 rounded-2xl bg-[#0E131F] border border-slate-800 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-xl font-bold text-white font-heading">Store & Offer Analytics</h1>
+                  <h1 className="text-xl font-bold text-white font-heading">Catalog & Offer Summary</h1>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Real-time summary of redemptions, community votes, and verification rates.
+                    Live overview of active offers, automatically hidden expired deals, and regional store coverage.
                   </p>
                 </div>
                 <button
@@ -2345,22 +2404,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-5 rounded-2xl bg-[#0E131F] border border-slate-800/80 space-y-1">
-                  <span className="text-xs text-slate-400">Total Redemptions Logged</span>
-                  <div className="text-2xl font-black text-white font-mono">
-                    {kpis.totalRedemptions.toLocaleString()}
-                  </div>
-                </div>
-                <div className="p-5 rounded-2xl bg-[#0E131F] border border-slate-800/80 space-y-1">
-                  <span className="text-xs text-slate-400">Positive Helpful Votes</span>
+                  <span className="text-xs text-slate-400">Active Offers Published</span>
                   <div className="text-2xl font-black text-emerald-400 font-mono">
-                    {coupons.reduce((s, c) => s + (c.upvotes || 0), 0).toLocaleString()}
+                    {kpis.activeCount}
                   </div>
                 </div>
                 <div className="p-5 rounded-2xl bg-[#0E131F] border border-slate-800/80 space-y-1">
-                  <span className="text-xs text-slate-400">Verified Offer Ratio</span>
+                  <span className="text-xs text-slate-400">Expired Offers Auto-Hidden</span>
+                  <div className="text-2xl font-black text-rose-400 font-mono">
+                    {kpis.expiredCount}
+                  </div>
+                </div>
+                <div className="p-5 rounded-2xl bg-[#0E131F] border border-slate-800/80 space-y-1">
+                  <span className="text-xs text-slate-400">Active Offer Ratio</span>
                   <div className="text-2xl font-black text-[#FF6600] font-mono">
                     {kpis.totalCoupons > 0
-                      ? `${Math.round((kpis.verifiedCount / kpis.totalCoupons) * 100)}%`
+                      ? `${Math.round((kpis.activeCount / kpis.totalCoupons) * 100)}%`
                       : '0%'}
                   </div>
                 </div>
@@ -2368,15 +2427,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <div className="bg-[#0E131F] border border-slate-800/80 rounded-2xl p-5">
                 <h3 className="text-xs font-bold text-white uppercase tracking-wider font-heading mb-4">
-                  Top Stores Performance Breakdown
+                  Top Stores by Active Offer Coverage
                 </h3>
                 <div className="space-y-3">
-                  {storeClickShare.map((seg) => (
+                  {storeOfferShare.map((seg) => (
                     <div key={seg.name} className="space-y-1">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-bold text-white">{seg.name}</span>
                         <span className="font-mono text-slate-300">
-                          {seg.clicks.toLocaleString()} uses ({seg.pct}%)
+                          {seg.offers} active offers ({seg.pct}%)
                         </span>
                       </div>
                       <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">

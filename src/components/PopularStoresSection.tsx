@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowRight, Store } from 'lucide-react';
+import { Store } from 'lucide-react';
 import { POPULAR_STORES_LIST } from '../data/coupons';
 
 interface PopularStoresSectionProps {
@@ -17,11 +17,12 @@ export const PopularStoresSection: React.FC<PopularStoresSectionProps> = ({
         <div className="flex items-center gap-2">
           <Store className="w-4 h-4 text-emerald-600" />
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-900 font-heading">
-            Popular Discount Stores
+            Featured Partner Stores
           </h3>
         </div>
         {selectedStore && (
           <button
+            type="button"
             onClick={() => onSelectStore('')}
             className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold cursor-pointer underline underline-offset-4"
           >
@@ -36,6 +37,7 @@ export const PopularStoresSection: React.FC<PopularStoresSectionProps> = ({
 
           return (
             <button
+              type="button"
               key={store.name}
               onClick={() => onSelectStore(isSelected ? '' : store.name)}
               className={`p-3 rounded-lg border text-left transition-all cursor-pointer flex items-center gap-3 ${
@@ -50,15 +52,13 @@ export const PopularStoresSection: React.FC<PopularStoresSectionProps> = ({
                 {store.logoText.slice(0, 4)}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block text-xs font-bold truncate">
-                  {store.name}
-                </span>
+                <span className="block text-xs font-bold truncate">{store.name}</span>
                 <span
                   className={`block text-[11px] truncate ${
                     isSelected ? 'text-slate-300' : 'text-slate-500'
                   }`}
                 >
-                  {store.count}+ offers
+                  View Deals
                 </span>
               </div>
             </button>

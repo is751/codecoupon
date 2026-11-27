@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Flame, ArrowRight, Copy, Check, ExternalLink, Calendar } from 'lucide-react';
-import { Coupon } from '../types/coupon';
+import { Flame, ArrowRight, Check, ExternalLink, Calendar, Globe, Clock } from 'lucide-react';
+import { Coupon, StoreInfo } from '../types/coupon';
+import { formatCountriesBadge } from '../utils/countries';
 import { CountdownTimer } from './CountdownTimer';
-import { getExpiryInfo } from '../utils/expiry';
+import { getEffectiveExpiryDisplay, isCouponExpired } from '../utils/expiry';
+import { resolveMerchantUrl } from '../utils/url';
 
 interface FeaturedDealsSectionProps {
   coupons: Coupon[];
+  stores?: Record<string, StoreInfo>;
   onCopyCode: (coupon: Coupon) => void;
   onOpenDetails: (coupon: Coupon) => void;
   onSelectStore: (storeSlug: string) => void;
@@ -14,6 +17,7 @@ interface FeaturedDealsSectionProps {
 
 export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
   coupons,
+  stores = {},
   onCopyCode,
   onOpenDetails,
   onSelectStore,
@@ -21,8 +25,12 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Take top 4 or 8 featured deals
-  const featuredOffers = coupons.filter((c) => c.featured || c.trending).slice(0, 4);
+  // Take top 4 active, non-expired featured deals
+  const featuredOffers = coupons
+    .filter((c) => c.verified && !isCouponExpired(c.expiryDate, c.isExpired) && (c.featured || c.trending))
+    .slice(0, 4);
+
+  if (featuredOffers.length === 0) return null;
 
   const handleCopy = (coupon: Coupon, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -38,10 +46,11 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
         <div className="flex items-center gap-2">
           <Flame className="w-5 h-5 text-[#FF6600]" />
           <h2 className="text-lg md:text-xl font-extrabold text-slate-900 font-heading">
-            Featured Coupons & Deals
+            Featured Coupons &amp; Deals
           </h2>
         </div>
         <button
+          type="button"
           onClick={onViewAllFeatured}
           className="text-xs font-bold text-orange-600 hover:text-orange-700 flex items-center gap-1 cursor-pointer transition-colors"
         >
@@ -54,14 +63,17 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {featuredOffers.map((coupon) => {
           const isCopied = copiedId === coupon.id;
-          const expiryInfo = getExpiryInfo(coupon.expiryDate);
-          const targetBrandUrl = (() => {
-            const raw = coupon.storeUrl?.trim();
-            if (raw && raw !== '#') {
-              return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-            }
-            return `https://www.google.com/search?q=${encodeURIComponent(coupon.store + ' official store')}`;
-          })();
+          const expiryDisplay = getEffectiveExpiryDisplay(coupon.expiryDate, coupon.isExpired);
+          const storeInfo = stores[coupon.storeSlug.toLowerCase()];
+          const effectiveCountries =
+            coupon.countries && coupon.countries.length > 0
+              ? coupon.countries
+              : storeInfo?.countries;
+          const targetBrandUrl = resolveMerchantUrl(
+            coupon.storeUrl,
+            storeInfo?.website,
+            coupon.storeSlug
+          );
 
           return (
             <div
@@ -83,7 +95,7 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
                     <div
                       className={`w-9 h-9 rounded-lg ${coupon.storeLogoBg} text-white flex items-center justify-center font-bold text-xs tracking-wider shadow-xs shrink-0 overflow-hidden`}
                     >
-                      {(coupon.logoUrl || coupon.storeLogoUrl) ? (
+                      {coupon.logoUrl || coupon.storeLogoUrl ? (
                         <img
                           src={coupon.logoUrl || coupon.storeLogoUrl}
                           alt={coupon.store}
@@ -98,78 +110,72 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
                       <span className="font-extrabold text-sm text-slate-900 block font-heading hover:text-orange-600 transition-colors truncate">
                         {coupon.store}
                       </span>
+                      <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                        <Globe className="w-2.5 h-2.5 text-slate-400" />
+                        <span>{formatCountriesBadge(effectiveCountries)}</span>
+                      </span>
                     </div>
                   </button>
 
-                  {/* Orange Discount Badge Tag */}
                   <span className="px-2.5 py-1 text-xs font-black text-white bg-gradient-to-r from-orange-500 to-amber-500 rounded-md shadow-xs font-heading shrink-0">
                     {coupon.discountBadge}
                   </span>
                 </div>
 
-                {/* Expiry Countdown & Days Remaining (when expiryDate is set) */}
-                {expiryInfo && (
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
-                        expiryInfo.isExpired
-                          ? 'bg-rose-50 text-rose-700 border-rose-200'
-                          : expiryInfo.isUrgent
-                          ? 'bg-orange-50 text-orange-700 border-orange-200'
-                          : 'bg-slate-100 text-slate-700 border-slate-200'
-                      }`}
-                    >
+                {/* Expiry Display */}
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
+                      expiryDisplay.isUrgent
+                        ? 'bg-orange-50 text-orange-700 border-orange-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {expiryDisplay.hasFixedDate ? (
                       <Calendar className="w-3 h-3" />
-                      <span>{expiryInfo.label}</span>
-                    </span>
-                    {!expiryInfo.isExpired && (
-                      <CountdownTimer
-                        expiryDateStr={coupon.expiryDate}
-                        hoursLeftFallback={coupon.expiryHoursLeft || 24}
-                        compact={true}
-                      />
+                    ) : (
+                      <Clock className="w-3 h-3" />
                     )}
-                  </div>
-                )}
+                    <span>{expiryDisplay.badgeText}</span>
+                  </span>
+                  {coupon.expiryDate && !expiryDisplay.isExpired && (
+                    <CountdownTimer
+                      expiryDateStr={coupon.expiryDate}
+                      hoursLeftFallback={coupon.expiryHoursLeft || 24}
+                      compact={true}
+                    />
+                  )}
+                </div>
 
-                {/* Deal Title / Description */}
-                <p className="text-xs sm:text-sm font-medium text-slate-700 line-clamp-2 leading-relaxed mb-2">
+                {/* Deal Title */}
+                <p className="text-xs sm:text-sm font-semibold text-slate-800 line-clamp-2 leading-relaxed mb-1.5">
                   {coupon.title}
                 </p>
 
-                {/* Tags Pills */}
-                {coupon.tags && coupon.tags.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1 mb-3">
-                    {coupon.tags.slice(0, 2).map((tag, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200/70"
-                      >
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
+                {/* Term / Minimum Spend Preview */}
+                {(coupon.minSpend || coupon.terms?.[0]) && (
+                  <p className="text-[11px] text-slate-500 line-clamp-1 mb-3">
+                    {coupon.minSpend || coupon.terms[0]}
+                  </p>
                 )}
               </div>
 
               {/* Bottom Actions */}
               <div className="space-y-2.5 pt-2 border-t border-slate-100">
-                {/* Dashed Code Box */}
                 {!coupon.isDeal && coupon.code ? (
                   <div className="py-2 px-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-center font-mono font-bold text-xs text-slate-800 tracking-wider">
                     {isCopied ? coupon.code : `${coupon.code.slice(0, 3)}••••`}
                   </div>
                 ) : (
                   <div className="py-2 px-3 bg-emerald-50/50 border border-dashed border-emerald-300 rounded-lg text-center font-medium text-xs text-emerald-800">
-                    No Code Required (Direct Sale)
+                    No Code Required (Direct Offer)
                   </div>
                 )}
 
-                {/* Bright Orange CTA: copies code AND opens brand website */}
                 <a
                   href={targetBrandUrl}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="noopener noreferrer sponsored"
                   onClick={(e) => handleCopy(coupon, e)}
                   className={`w-full py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] shadow-xs cursor-pointer ${
                     isCopied
@@ -180,7 +186,7 @@ export const FeaturedDealsSection: React.FC<FeaturedDealsSectionProps> = ({
                   {isCopied ? (
                     <>
                       <Check className="w-4 h-4" />
-                      <span>COPIED & OPENED!</span>
+                      <span>COPIED &amp; OPENED!</span>
                     </>
                   ) : coupon.isDeal ? (
                     <>

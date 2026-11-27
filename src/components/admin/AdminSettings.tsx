@@ -39,7 +39,7 @@ interface SitePreferences {
 const DEFAULT_SITE_PREFS: SitePreferences = {
   siteName: 'CodeCoupon',
   currency: 'USD ($)',
-  supportEmail: 'info@codescoupons.com',
+  supportEmail: 'codecoupon.social@gmail.com',
   autoExpire: true,
   emailAlerts: true,
 };
@@ -278,7 +278,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({
       const prefs: SitePreferences = {
         siteName: siteName.trim() || 'CodeCoupon',
         currency,
-        supportEmail: supportEmail.trim() || 'info@codescoupons.com',
+        supportEmail: supportEmail.trim() || 'codecoupon.social@gmail.com',
         autoExpire,
         emailAlerts,
       };

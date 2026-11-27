@@ -1,6 +1,7 @@
 import React from 'react';
 import { Coupon, StoreInfo } from '../types/coupon';
 import { POPULAR_STORES_LIST } from '../data/coupons';
+import { isCouponExpired } from '../utils/expiry';
 
 interface BrandMarqueeProps {
   onSelectStore: (storeSlug: string) => void;
@@ -13,43 +14,50 @@ export const BrandMarquee: React.FC<BrandMarqueeProps> = ({
   stores,
   coupons = [],
 }) => {
-  const storeEntries = stores && Object.keys(stores).length > 0
-    ? Object.values(stores).map((s) => {
-        const liveCount = coupons.filter(
-          (c) =>
-            c.storeSlug.toLowerCase() === s.slug.toLowerCase() ||
-            c.store.toLowerCase() === s.name.toLowerCase()
-        ).length;
-        return {
+  const activeCoupons = coupons.filter(
+    (c) => c.verified && !isCouponExpired(c.expiryDate, c.isExpired)
+  );
+
+  const storeEntries =
+    stores && Object.keys(stores).length > 0
+      ? Object.values(stores).map((s) => {
+          const liveCount = activeCoupons.filter(
+            (c) =>
+              c.storeSlug.toLowerCase() === s.slug.toLowerCase() ||
+              c.store.toLowerCase() === s.name.toLowerCase()
+          ).length;
+          return {
+            slug: s.slug,
+            name: s.name,
+            logoText: s.logoText || s.name,
+            logoBg: s.logoBg || 'bg-[#FF6600]',
+            logoUrl: s.logoUrl,
+            label:
+              liveCount > 0
+                ? `${liveCount} ${liveCount === 1 ? 'Offer' : 'Offers'}`
+                : s.bestDiscount || 'Store Offers',
+          };
+        })
+      : POPULAR_STORES_LIST.map((s) => ({
           slug: s.slug,
           name: s.name,
-          logoText: s.logoText || s.name,
-          logoBg: s.logoBg || 'bg-[#FF6600]',
-          logoUrl: s.logoUrl,
-          label: liveCount > 0 ? `${liveCount} ${liveCount === 1 ? 'Offer' : 'Offers'}` : (s.bestDiscount || 'Verified'),
-        };
-      })
-    : POPULAR_STORES_LIST.map((s) => ({
-        slug: s.slug,
-        name: s.name,
-        logoText: s.logoText,
-        logoBg: s.logoBg,
-        logoUrl: undefined as string | undefined,
-        label: `${s.count}+ Deals`,
-      }));
+          logoText: s.logoText,
+          logoBg: s.logoBg,
+          logoUrl: undefined as string | undefined,
+          label: 'View Deals',
+        }));
 
-  // Duplicate stores array for continuous seamless infinite loop
   const duplicatedStores = [...storeEntries, ...storeEntries];
 
   return (
     <div className="bg-[#0B0F17]/95 border-t border-slate-800 py-3.5 overflow-hidden relative select-none">
-      {/* Left/right shadow fade masks */}
       <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-[#0B0F17] to-transparent z-10 pointer-events-none" />
       <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-[#0B0F17] to-transparent z-10 pointer-events-none" />
 
       <div className="flex items-center gap-6 w-max animate-marquee hover:[animation-play-state:paused]">
         {duplicatedStores.map((store, index) => (
           <button
+            type="button"
             key={`${store.slug}-${index}`}
             onClick={() => onSelectStore(store.slug)}
             className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800/80 hover:border-orange-500/50 transition-all cursor-pointer shrink-0 group"

@@ -37,7 +37,7 @@ const STARTER_PROMPTS = [
 const WELCOME_MESSAGE: ChatMessage = {
   id: 'welcome',
   role: 'model',
-  text: "Hi! I'm your CodeCoupon Savings Assistant. Ask me about verified promo codes, expiring deals, store discounts, or ways to save on your next purchase.",
+  text: "Hi! I'm your CodeCoupon Savings Assistant. Ask me about active promo codes, expiring deals, regional offers, or store discounts.",
 };
 
 /**
@@ -76,20 +76,24 @@ export const SavingsChatWidget: React.FC<SavingsChatWidgetProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Build concise, live catalog summary so the assistant recommends real verified offers & remaining days
+  // Build concise, live catalog summary using active, non-expired offers only
   const catalogContext = useMemo(() => {
     const activeOffers = coupons
-      .filter((c) => c.verified)
+      .filter((c) => c.verified && c.verifiedText !== 'Expired' && (!c.expiryDate || (() => {
+        const exp = getExpiryInfo(c.expiryDate);
+        return !exp?.isExpired;
+      })()) && !c.isExpired)
       .slice(0, 25)
       .map((c) => {
         const exp = getExpiryInfo(c.expiryDate);
         const expirySummary = exp
           ? `Expires ${exp.formattedDate} (${exp.label})`
-          : 'Ongoing / No expiry date';
+          : 'Ongoing offer';
         const codeSummary = c.isDeal
-          ? 'Instant Direct Deal (no code needed)'
+          ? 'Direct Deal (no code needed)'
           : `Code: ${c.code || 'N/A'}`;
-        return `- ${c.store} | ${c.discountBadge} | ${c.title} | ${codeSummary} | Category: ${c.category} | ${expirySummary}`;
+        const regions = c.countries && c.countries.length > 0 ? c.countries.join(', ') : 'GLOBAL';
+        return `- ${c.store} | ${c.discountBadge} | ${c.title} | ${codeSummary} | Regions: ${regions} | Category: ${c.category} | ${expirySummary}`;
       });
 
     const storeNames = Object.values(stores)
@@ -97,7 +101,7 @@ export const SavingsChatWidget: React.FC<SavingsChatWidgetProps> = ({
       .slice(0, 20)
       .join(', ');
 
-    return `Partner Stores: ${storeNames}\nActive Verified Offers:\n${activeOffers.join('\n')}`;
+    return `Partner Stores: ${storeNames}\nActive Offers:\n${activeOffers.join('\n')}`;
   }, [coupons, stores]);
 
   useEffect(() => {

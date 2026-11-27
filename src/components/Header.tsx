@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { Search, User, LogOut, Menu, X, ShieldCheck } from 'lucide-react';
+import { Search, User, LogOut, Menu, X, ShieldCheck, Globe } from 'lucide-react';
+import { COUNTRIES, CountryFilter } from '../utils/countries';
+import { InfoPageKey } from '../types/coupon';
 
 interface HeaderProps {
   onOpenLogin: () => void;
@@ -7,7 +9,11 @@ interface HeaderProps {
   onLogout: () => void;
   currentUser: { name: string; email: string; role?: 'admin' | 'shopper' } | null;
   activeTab: 'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog';
+  activeInfoPage?: InfoPageKey | null;
   setActiveTab: (tab: 'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog') => void;
+  onNavigateInfo?: (page: InfoPageKey) => void;
+  selectedCountry: CountryFilter;
+  onSelectCountry: (country: CountryFilter) => void;
   onResetFilters: () => void;
   onFocusSearch: () => void;
   onOpenAdmin: () => void;
@@ -28,7 +34,11 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   currentUser,
   activeTab,
+  activeInfoPage,
   setActiveTab,
+  onNavigateInfo,
+  selectedCountry,
+  onSelectCountry,
   onResetFilters,
   onFocusSearch,
   onOpenAdmin,
@@ -43,9 +53,16 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  const handleInfoClick = (page: InfoPageKey) => {
+    setIsMobileMenuOpen(false);
+    if (onNavigateInfo) {
+      onNavigateInfo(page);
+    }
+  };
+
   return (
     <header className="sticky top-0 z-40 bg-[#0B0F17] border-b border-slate-800 text-white transition-all shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
         
         {/* Zone 1: Brand Wordmark */}
         <button
@@ -60,18 +77,18 @@ export const Header: React.FC<HeaderProps> = ({
             />
           </div>
           <span className="text-xl font-black tracking-tight text-white whitespace-nowrap font-heading">
-            Code<span className="text-[#FF6600]">coupon</span>
+            Code<span className="text-[#FF6600]">Coupon</span>
           </span>
         </button>
 
-        {/* Zone 2: Public Storefront Navigation (Admin button removed per request) */}
-        <nav className="hidden lg:flex items-center gap-6 text-xs font-semibold text-slate-300">
+        {/* Zone 2: Public Storefront Navigation */}
+        <nav className="hidden lg:flex items-center gap-5 text-xs font-semibold text-slate-300">
           {NAV_ITEMS.map((item) => (
             <button
               key={item.key}
               onClick={() => handleNavClick(item.key)}
               className={`cursor-pointer transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
-                activeTab === item.key
+                !activeInfoPage && activeTab === item.key
                   ? 'text-[#FF6600] border-[#FF6600]'
                   : 'border-transparent hover:text-white'
               }`}
@@ -79,10 +96,46 @@ export const Header: React.FC<HeaderProps> = ({
               {item.label}
             </button>
           ))}
+          {onNavigateInfo && (
+            <a
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                handleInfoClick('about');
+              }}
+              className={`cursor-pointer transition-colors whitespace-nowrap shrink-0 py-1 border-b-2 ${
+                activeInfoPage === 'about'
+                  ? 'text-[#FF6600] border-[#FF6600]'
+                  : 'border-transparent hover:text-white'
+              }`}
+            >
+              About
+            </a>
+          )}
         </nav>
 
-        {/* Zone 3: Search, Account & Mobile Drawer Trigger */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Zone 3: Country Selector, Search, Account & Mobile Drawer Trigger */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          {/* Desktop Country Targeting Selector */}
+          <div className="hidden md:flex items-center gap-1.5 bg-[#121824] border border-slate-700/80 rounded-xl px-2.5 py-1.5">
+            <Globe className="w-3.5 h-3.5 text-[#FF6600] shrink-0" />
+            <select
+              value={selectedCountry}
+              onChange={(e) => onSelectCountry(e.target.value as CountryFilter)}
+              aria-label="Filter offers by country or region"
+              className="bg-transparent text-xs font-semibold text-slate-200 focus:outline-none cursor-pointer pr-1"
+            >
+              <option value="ALL" className="bg-[#121824] text-white">
+                All Regions
+              </option>
+              {COUNTRIES.map((country) => (
+                <option key={country.code} value={country.code} className="bg-[#121824] text-white">
+                  {country.shortLabel}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <button
             onClick={onFocusSearch}
             className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
@@ -101,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
                   title="Return to Admin Portal"
                 >
                   <User className="w-3.5 h-3.5 text-[#FF6600]" />
-                  <span className="truncate max-w-[100px]">{currentUser.name}</span>
+                  <span className="truncate max-w-[90px]">{currentUser.name}</span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/20 text-[#FF6600] font-bold">
                     Admin
                   </span>
@@ -114,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({
                   title="Sign in to Admin Backend Dashboard"
                 >
                   <User className="w-3.5 h-3.5 text-[#FF6600]" />
-                  <span className="truncate max-w-[110px]">{currentUser.name}</span>
+                  <span className="truncate max-w-[100px]">{currentUser.name}</span>
                   <span className="hidden sm:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-orange-500/15 text-[#FF6600] font-bold">
                     <ShieldCheck className="w-2.5 h-2.5" />
                     Backend
@@ -152,20 +205,81 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Mobile Navigation Drawer */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden bg-[#0E131F] border-t border-slate-800 px-4 py-3 space-y-1 animate-in fade-in slide-in-from-top-1 duration-150">
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => handleNavClick(item.key)}
-              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                activeTab === item.key
-                  ? 'bg-[#FF6600]/15 text-[#FF6600] font-bold'
-                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
-              }`}
+        <div className="lg:hidden bg-[#0E131F] border-t border-slate-800 px-4 py-3 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Mobile Country Targeting */}
+          <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-[#121824] border border-slate-800">
+            <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-[#FF6600]" />
+              <span>Region / Country</span>
+            </span>
+            <select
+              value={selectedCountry}
+              onChange={(e) => {
+                onSelectCountry(e.target.value as CountryFilter);
+                setIsMobileMenuOpen(false);
+              }}
+              aria-label="Select country or region"
+              className="bg-transparent text-xs font-bold text-white focus:outline-none cursor-pointer"
             >
-              {item.label}
-            </button>
-          ))}
+              <option value="ALL" className="bg-[#121824] text-white">
+                All Regions
+              </option>
+              {COUNTRIES.map((country) => (
+                <option key={country.code} value={country.code} className="bg-[#121824] text-white">
+                  {country.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                onClick={() => handleNavClick(item.key)}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                  !activeInfoPage && activeTab === item.key
+                    ? 'bg-[#FF6600]/15 text-[#FF6600] font-bold'
+                    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+
+            {onNavigateInfo && (
+              <>
+                <a
+                  href="/about"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleInfoClick('about');
+                  }}
+                  className={`block w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
+                    activeInfoPage === 'about'
+                      ? 'bg-[#FF6600]/15 text-[#FF6600] font-bold'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                  }`}
+                >
+                  About Us
+                </a>
+                <a
+                  href="/contact"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleInfoClick('contact');
+                  }}
+                  className={`block w-full text-left px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
+                    activeInfoPage === 'contact'
+                      ? 'bg-[#FF6600]/15 text-[#FF6600] font-bold'
+                      : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                  }`}
+                >
+                  Contact Us
+                </a>
+              </>
+            )}
+          </div>
         </div>
       )}
     </header>

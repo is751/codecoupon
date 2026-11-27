@@ -9,9 +9,9 @@ import { StorePage } from './components/StorePage';
 import { StoresDirectoryPage } from './components/StoresDirectoryPage';
 import { CouponDetailPage } from './components/CouponDetailPage';
 import { BlogSection } from './components/BlogSection';
+import { InfoPages } from './components/InfoPages';
 import { CouponCard } from './components/CouponCard';
 import { CouponModal } from './components/CouponModal';
-import { CouponReviewModal } from './components/CouponReviewModal';
 import { LoginModal } from './components/LoginModal';
 import { DealControlsBar } from './components/DealControlsBar';
 import { Footer } from './components/Footer';
@@ -22,8 +22,18 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { INITIAL_COUPONS, STORES_DATA } from './data/coupons';
 import { BLOG_POSTS } from './data/blogs';
 import { getAdminCredentials } from './data/adminAuth';
-import { Category, Coupon, CouponReview, DealType, SortOption, StoreInfo, BlogPost } from './types/coupon';
-import { computeHoursLeftFromDate } from './utils/expiry';
+import {
+  Category,
+  Coupon,
+  DealType,
+  InfoPageKey,
+  SortOption,
+  StoreInfo,
+  BlogPost,
+} from './types/coupon';
+import { CountryFilter, matchesCountryFilter } from './utils/countries';
+import { computeHoursLeftFromDate, isCouponExpired } from './utils/expiry';
+import { resolveMerchantUrl } from './utils/url';
 import { Search, RotateCcw, ShieldCheck, Lock, Mail, AlertCircle, ArrowLeft } from 'lucide-react';
 
 const STORAGE_KEY_COMMUNITY = 'codecoupon_community_items';
@@ -32,12 +42,50 @@ const STORAGE_KEY_USER = 'codecoupon_current_user';
 const STORAGE_KEY_AUTH_TOKEN = 'codecoupon_auth_token';
 const STORAGE_KEY_COUPONS = 'codecoupon_all_coupons';
 const STORAGE_KEY_BLOGS = 'codecoupon_blog_posts';
+const STORAGE_KEY_COUNTRY = 'codecoupon_country_filter';
+
+const INFO_PAGE_PATHS: Record<InfoPageKey, string> = {
+  about: '/about',
+  contact: '/contact',
+  privacy: '/privacy-policy',
+  terms: '/terms',
+  affiliate: '/affiliate-disclosure',
+  verification: '/verification-policy',
+};
+
+const PATH_TO_INFO_PAGE: Record<string, InfoPageKey> = {
+  '/about': 'about',
+  '/about-us': 'about',
+  '/contact': 'contact',
+  '/contact-us': 'contact',
+  '/privacy-policy': 'privacy',
+  '/privacy': 'privacy',
+  '/terms': 'terms',
+  '/terms-and-conditions': 'terms',
+  '/affiliate-disclosure': 'affiliate',
+  '/verification-policy': 'verification',
+};
 
 interface AuthUser {
   name: string;
   email: string;
   role?: 'admin' | 'shopper';
   token?: string;
+}
+
+function normalizeCoupon(raw: Coupon): Coupon {
+  const expired = isCouponExpired(raw.expiryDate, raw.isExpired);
+  return {
+    ...raw,
+    isExpired: expired,
+    verifiedText: expired ? 'Expired' : raw.verifiedText || 'Checked Nov 2026',
+    countries: raw.countries && raw.countries.length > 0 ? raw.countries : ['GLOBAL'],
+    terms: Array.isArray(raw.terms) ? raw.terms : [],
+  };
+}
+
+function normalizeCoupons(list: Coupon[]): Coupon[] {
+  return list.map(normalizeCoupon);
 }
 
 function getSavedAdminSession(): boolean {
@@ -69,7 +117,7 @@ function getSavedAdminSession(): boolean {
 }
 
 export default function App() {
-  // Stores state (trust localStorage once initialized so deletions persist)
+  // Stores state
   const [stores, setStores] = useState<Record<string, StoreInfo>>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_STORES);
@@ -82,25 +130,65 @@ export default function App() {
     return STORES_DATA;
   });
 
-  // Coupons list state
+  // Coupons list state (automatically marks expired coupons)
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
     try {
       const allStored = localStorage.getItem(STORAGE_KEY_COUPONS);
       if (allStored) {
-        return JSON.parse(allStored);
+        return normalizeCoupons(JSON.parse(allStored));
       }
       const stored = localStorage.getItem(STORAGE_KEY_COMMUNITY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        return [...parsed, ...INITIAL_COUPONS];
+        return normalizeCoupons([...parsed, ...INITIAL_COUPONS]);
       }
     } catch {
       // fallback
     }
-    return INITIAL_COUPONS;
+    return normalizeCoupons(INITIAL_COUPONS);
   });
 
-  // Current logged in user (hydrates admin if token or admin role exists in localStorage)
+  // Periodically check and automatically expire coupons past their expiry date
+  useEffect(() => {
+    const syncExpiryStates = () => {
+      setCoupons((prev) => {
+        let changed = false;
+        const next = prev.map((c) => {
+          const expiredNow = isCouponExpired(c.expiryDate, c.isExpired);
+          if (Boolean(c.isExpired) !== expiredNow || (expiredNow && c.verifiedText !== 'Expired')) {
+            changed = true;
+            return {
+              ...c,
+              isExpired: expiredNow,
+              verifiedText: expiredNow ? 'Expired' : c.verifiedText,
+            };
+          }
+          return c;
+        });
+        if (changed) {
+          try {
+            localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(next));
+          } catch {
+            // ignore
+          }
+          return next;
+        }
+        return prev;
+      });
+    };
+
+    syncExpiryStates();
+    const interval = window.setInterval(syncExpiryStates, 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // Active non-expired coupons visible on public storefront
+  const activeCoupons = useMemo(
+    () => coupons.filter((c) => c.verified && !isCouponExpired(c.expiryDate, c.isExpired)),
+    [coupons]
+  );
+
+  // Current logged in user
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_USER);
@@ -128,7 +216,7 @@ export default function App() {
     }
   });
 
-  // Admin portal gate form state (when navigating to #/admin unauthenticated)
+  // Admin portal gate form state
   const [gateId, setGateId] = useState('');
   const [gatePassword, setGatePassword] = useState('');
   const [gateError, setGateError] = useState('');
@@ -146,123 +234,209 @@ export default function App() {
     return BLOG_POSTS;
   });
 
-  // Navigation tab: 'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog'
-  const [activeTab, setActiveTab] = useState<'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog'>('home');
-
-  // Active dedicated store page (e.g. 'amazon', 'nike', null)
+  // Navigation tab & pages
+  const [activeTab, setActiveTab] = useState<
+    'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog'
+  >('home');
+  const [activeInfoPage, setActiveInfoPage] = useState<InfoPageKey | null>(null);
   const [activeStoreSlug, setActiveStoreSlug] = useState<string | null>(null);
-
-  // Active dedicated coupon detail page (separate page for clicked coupon)
   const [activeCoupon, setActiveCoupon] = useState<Coupon | null>(null);
 
-  // Filters & Search
+  // Filters, Country Targeting & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<Category>('All');
+  const [selectedCountry, setSelectedCountry] = useState<CountryFilter>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_COUNTRY);
+      if (saved) return saved as CountryFilter;
+    } catch {
+      // ignore
+    }
+    return 'ALL';
+  });
   const [dealType, setDealType] = useState<DealType>('all');
-  const [sortBy, setSortBy] = useState<SortOption>('popular');
+  const [sortBy, setSortBy] = useState<SortOption>('featured');
 
-  // View mode: 'website' | 'admin' (auto-enters 'admin' if saved token or admin role exists)
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_COUNTRY, selectedCountry);
+    } catch {
+      // ignore
+    }
+  }, [selectedCountry]);
+
+  // View mode
   const [viewMode, setViewMode] = useState<'website' | 'admin'>(() =>
     getSavedAdminSession() ? 'admin' : 'website'
   );
 
   // Admin active sub-page
-  const [adminTab, setAdminTab] = useState<'dashboard' | 'coupons' | 'sort-coupons' | 'stores' | 'blogs' | 'categories' | 'affiliates' | 'analytics' | 'users' | 'settings'>('dashboard');
+  const [adminTab, setAdminTab] = useState<
+    | 'dashboard'
+    | 'coupons'
+    | 'sort-coupons'
+    | 'stores'
+    | 'blogs'
+    | 'categories'
+    | 'affiliates'
+    | 'analytics'
+    | 'users'
+    | 'settings'
+  >('dashboard');
 
   // Modals
   const [activeCouponModal, setActiveCouponModal] = useState<Coupon | null>(null);
-  const [activeReviewCoupon, setActiveReviewCoupon] = useState<Coupon | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [loginModalMode, setLoginModalMode] = useState<'shopper' | 'admin'>('shopper');
 
   // Toast
   const [toast, setToast] = useState<{ message: string; subMessage?: string } | null>(null);
 
-  // Dedicated URL Hash Routing & Browser History support:
-  // When a coupon is clicked, it opens its dedicated page (#/coupon/:id)
-  // When a store is clicked, it opens its dedicated page (#/store/:slug)
-  // When tabs are clicked, they open (#/stores, #/blog, #/coupons, #/deals)
-  // When admin pages are clicked, each has its dedicated page (#/admin, #/admin/stores, #/admin/coupons, etc.)
   const isInitialMountRef = useRef(true);
 
+  const getStoreUrlPath = (slug: string): string => {
+    const clean = slug.trim().toLowerCase();
+    return clean.endsWith('-promo-code') ? `/${clean}` : `/${clean}-promo-code`;
+  };
+
+  const navigatePath = (path: string, replace = false) => {
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    if (window.location.pathname !== normalized || window.location.hash) {
+      if (replace) {
+        window.history.replaceState(null, '', normalized);
+      } else {
+        window.history.pushState(null, '', normalized);
+      }
+    }
+  };
+
   useEffect(() => {
-    const handleHashSync = () => {
+    const resolveEffectivePath = (): string => {
       const hash = window.location.hash;
-      if (hash.startsWith('#/coupon/')) {
-        const id = hash.replace('#/coupon/', '');
+      if (hash && hash.startsWith('#/')) {
+        let converted = hash.slice(1);
+        if (converted.startsWith('/store/')) {
+          converted = getStoreUrlPath(converted.replace('/store/', ''));
+        }
+        window.history.replaceState(null, '', converted || '/');
+        return converted || '/';
+      }
+      const rawPath = window.location.pathname.replace(/\/+$/, '');
+      return rawPath || '/';
+    };
+
+    const syncRouteFromLocation = () => {
+      const path = resolveEffectivePath();
+
+      if (PATH_TO_INFO_PAGE[path]) {
+        setActiveInfoPage(PATH_TO_INFO_PAGE[path]);
+        setActiveCoupon(null);
+        setActiveStoreSlug(null);
+        setViewMode('website');
+      } else if (path.startsWith('/coupon/')) {
+        const id = path.replace('/coupon/', '');
         const found = coupons.find((c) => c.id === id);
         if (found) {
           setActiveCoupon(found);
           setActiveStoreSlug(null);
+          setActiveInfoPage(null);
           setViewMode('website');
         }
-      } else if (hash.startsWith('#/store/')) {
-        const slug = hash.replace('#/store/', '');
+      } else if (path.startsWith('/store/')) {
+        const slug = path.replace('/store/', '');
         setActiveStoreSlug(slug);
         setActiveCoupon(null);
+        setActiveInfoPage(null);
         setViewMode('website');
-      } else if (hash === '#/stores') {
+        navigatePath(getStoreUrlPath(slug), true);
+      } else if (path === '/stores') {
         setActiveTab('stores');
+        setActiveInfoPage(null);
         setActiveCoupon(null);
         setActiveStoreSlug(null);
         setViewMode('website');
-      } else if (hash === '#/coupons') {
+      } else if (path === '/coupons') {
         setActiveTab('coupons');
         setDealType('code');
+        setActiveInfoPage(null);
         setActiveCoupon(null);
         setActiveStoreSlug(null);
         setViewMode('website');
-      } else if (hash === '#/deals') {
+      } else if (path === '/deals') {
         setActiveTab('deals');
         setDealType('deal');
+        setActiveInfoPage(null);
         setActiveCoupon(null);
         setActiveStoreSlug(null);
         setViewMode('website');
-      } else if (hash === '#/categories') {
+      } else if (path === '/categories') {
         setActiveTab('categories');
         setDealType('all');
+        setActiveInfoPage(null);
         setActiveCoupon(null);
         setActiveStoreSlug(null);
         setViewMode('website');
-      } else if (hash === '#/blog') {
+      } else if (path === '/blog') {
         setActiveTab('blog');
+        setActiveInfoPage(null);
         setActiveCoupon(null);
         setActiveStoreSlug(null);
         setViewMode('website');
-      } else if (hash.startsWith('#/admin')) {
+      } else if (path.startsWith('/admin')) {
         setViewMode('admin');
         setActiveCoupon(null);
         setActiveStoreSlug(null);
-        if (hash === '#/admin/stores') {
+        setActiveInfoPage(null);
+        if (path === '/admin/stores') {
           setAdminTab('stores');
-        } else if (hash === '#/admin/coupons') {
+        } else if (path === '/admin/coupons') {
           setAdminTab('coupons');
-        } else if (hash === '#/admin/sort-coupons') {
+        } else if (path === '/admin/sort-coupons') {
           setAdminTab('sort-coupons');
-        } else if (hash === '#/admin/blogs') {
+        } else if (path === '/admin/blogs') {
           setAdminTab('blogs');
-        } else if (hash === '#/admin/categories') {
+        } else if (path === '/admin/categories') {
           setAdminTab('categories');
-        } else if (hash === '#/admin/affiliates') {
+        } else if (path === '/admin/affiliates') {
           setAdminTab('affiliates');
-        } else if (hash === '#/admin/analytics') {
+        } else if (path === '/admin/analytics') {
           setAdminTab('analytics');
-        } else if (hash === '#/admin/users') {
+        } else if (path === '/admin/users') {
           setAdminTab('users');
-        } else if (hash === '#/admin/settings') {
+        } else if (path === '/admin/settings') {
           setAdminTab('settings');
         } else {
           setAdminTab('dashboard');
         }
-      } else if (hash === '#/' || hash === '') {
+      } else if (path.endsWith('-promo-code')) {
+        const candidateSlug = path.slice(1, -'-promo-code'.length).toLowerCase();
+        const fullSlug = path.slice(1).toLowerCase();
+        const resolvedSlug = stores[candidateSlug]
+          ? candidateSlug
+          : stores[fullSlug]
+          ? fullSlug
+          : candidateSlug;
+        setActiveStoreSlug(resolvedSlug);
+        setActiveCoupon(null);
+        setActiveInfoPage(null);
+        setViewMode('website');
+      } else if (path !== '/' && stores[path.slice(1).toLowerCase()]) {
+        const slug = path.slice(1).toLowerCase();
+        setActiveStoreSlug(slug);
+        setActiveCoupon(null);
+        setActiveInfoPage(null);
+        setViewMode('website');
+        navigatePath(getStoreUrlPath(slug), true);
+      } else {
         setViewMode('website');
         setActiveCoupon(null);
         setActiveStoreSlug(null);
+        setActiveInfoPage(null);
         setActiveTab('home');
       }
     };
 
-    window.addEventListener('hashchange', handleHashSync);
+    window.addEventListener('popstate', syncRouteFromLocation);
+    window.addEventListener('hashchange', syncRouteFromLocation);
 
     if (isInitialMountRef.current) {
       isInitialMountRef.current = false;
@@ -270,45 +444,64 @@ export default function App() {
         setViewMode('admin');
         setActiveCoupon(null);
         setActiveStoreSlug(null);
-        if (!window.location.hash.startsWith('#/admin')) {
+        setActiveInfoPage(null);
+        if (
+          !window.location.pathname.startsWith('/admin') &&
+          !window.location.hash.startsWith('#/admin')
+        ) {
           setAdminTab('dashboard');
-          window.location.hash = '#/admin';
+          navigatePath('/admin', true);
         } else {
-          handleHashSync();
+          syncRouteFromLocation();
         }
-        return () => window.removeEventListener('hashchange', handleHashSync);
+        return () => {
+          window.removeEventListener('popstate', syncRouteFromLocation);
+          window.removeEventListener('hashchange', syncRouteFromLocation);
+        };
       }
     }
 
-    handleHashSync();
-    return () => window.removeEventListener('hashchange', handleHashSync);
-  }, [coupons]);
+    syncRouteFromLocation();
+    return () => {
+      window.removeEventListener('popstate', syncRouteFromLocation);
+      window.removeEventListener('hashchange', syncRouteFromLocation);
+    };
+  }, [coupons, stores]);
 
-  // Navigate to dedicated coupon page
   const navigateToCoupon = (coupon: Coupon) => {
     setActiveCoupon(coupon);
     setActiveStoreSlug(null);
-    window.location.hash = `#/coupon/${coupon.id}`;
+    setActiveInfoPage(null);
+    navigatePath(`/coupon/${coupon.id}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Navigate to dedicated store page
   const navigateToStore = (slug: string) => {
     setActiveStoreSlug(slug);
     setActiveCoupon(null);
-    window.location.hash = `#/store/${slug}`;
+    setActiveInfoPage(null);
+    navigatePath(getStoreUrlPath(slug));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Navigate to tab page
   const navigateToTab = (tab: 'home' | 'coupons' | 'deals' | 'stores' | 'categories' | 'blog') => {
     setActiveTab(tab);
     setActiveCoupon(null);
     setActiveStoreSlug(null);
+    setActiveInfoPage(null);
     if (tab === 'coupons') setDealType('code');
     if (tab === 'deals') setDealType('deal');
     if (tab === 'home' || tab === 'categories') setDealType('all');
-    window.location.hash = tab === 'home' ? '#/' : `#/${tab}`;
+    navigatePath(tab === 'home' ? '/' : `/${tab}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const navigateToInfoPage = (page: InfoPageKey) => {
+    setActiveInfoPage(page);
+    setActiveCoupon(null);
+    setActiveStoreSlug(null);
+    setViewMode('website');
+    navigatePath(INFO_PAGE_PATHS[page]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -325,7 +518,6 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Helper to persist coupons safely
   const persistCoupons = (updated: Coupon[]) => {
     try {
       localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
@@ -338,7 +530,6 @@ export default function App() {
     }
   };
 
-  // Handle Login success -> only admins open Backend Dashboard; shoppers stay on storefront
   const handleLoginSuccess = (user: { name: string; email: string; role: 'admin' | 'shopper' }) => {
     if (user.role === 'admin') {
       const sessionToken = `cc_admin_${Date.now()}`;
@@ -350,7 +541,7 @@ export default function App() {
       setCurrentUser({ ...user, token: sessionToken });
       setAdminTab('dashboard');
       setViewMode('admin');
-      window.location.hash = '#/admin';
+      navigatePath('/admin');
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setToast({
         message: `Welcome back, ${user.name}!`,
@@ -365,7 +556,6 @@ export default function App() {
     }
   };
 
-  // Handle Logout -> clears auth token & returns cleanly to public website
   const handleLogout = () => {
     try {
       localStorage.removeItem(STORAGE_KEY_AUTH_TOKEN);
@@ -377,8 +567,11 @@ export default function App() {
     }
     setCurrentUser(null);
     setViewMode('website');
-    if (window.location.hash.startsWith('#/admin')) {
-      window.location.hash = '#/';
+    if (
+      window.location.pathname.startsWith('/admin') ||
+      window.location.hash.startsWith('#/admin')
+    ) {
+      navigatePath('/');
     }
     setToast({
       message: 'Signed Out',
@@ -386,73 +579,53 @@ export default function App() {
     });
   };
 
-  // Admin: Handle adding new coupon
   const handleAddCoupon = (newCoupon: Coupon) => {
+    const normalized = normalizeCoupon(newCoupon);
     setCoupons((prev) => {
-      const updated = [newCoupon, ...prev];
-      try {
-        localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
-        const customItems = updated.filter((c) => c.isCommunity || c.id.startsWith('admin-c-') || c.id.startsWith('bulk-c-'));
-        localStorage.setItem(STORAGE_KEY_COMMUNITY, JSON.stringify(customItems));
-      } catch {
-        // ignore
-      }
+      const updated = [normalized, ...prev];
+      persistCoupons(updated);
       return updated;
     });
 
     setToast({
-      message: `Coupon Added Successfully!`,
-      subMessage: `"${newCoupon.title}" is now live across CodeCoupon.`,
+      message: 'Coupon Added Successfully!',
+      subMessage: `"${normalized.title}" is saved to CodeCoupon.`,
     });
   };
 
-  // Admin: Handle updating existing coupon
   const handleUpdateCoupon = (updatedCoupon: Coupon) => {
+    const normalized = normalizeCoupon(updatedCoupon);
     setCoupons((prev) => {
-      const updated = prev.map((c) => (c.id === updatedCoupon.id ? updatedCoupon : c));
-      try {
-        localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
-        const customItems = updated.filter((c) => c.isCommunity || c.id.startsWith('admin-c-') || c.id.startsWith('bulk-c-'));
-        localStorage.setItem(STORAGE_KEY_COMMUNITY, JSON.stringify(customItems));
-      } catch {
-        // ignore
-      }
+      const updated = prev.map((c) => (c.id === normalized.id ? normalized : c));
+      persistCoupons(updated);
       return updated;
     });
 
-    if (activeCoupon?.id === updatedCoupon.id) {
-      setActiveCoupon(updatedCoupon);
+    if (activeCoupon?.id === normalized.id) {
+      setActiveCoupon(normalized);
     }
 
     setToast({
-      message: `Coupon Updated Successfully!`,
-      subMessage: `"${updatedCoupon.title}" has been saved.`,
+      message: 'Coupon Updated Successfully!',
+      subMessage: `"${normalized.title}" has been saved.`,
     });
   };
 
-  // Admin: Handle adding all curated coupons in bulk (Add All Coupons)
   const handleAddAllCoupons = (curatedCoupons: Coupon[]) => {
     setCoupons((prev) => {
       const existingIds = new Set(prev.map((c) => c.id));
-      const newItems = curatedCoupons.filter((c) => !existingIds.has(c.id));
+      const newItems = normalizeCoupons(curatedCoupons.filter((c) => !existingIds.has(c.id)));
       const updated = [...newItems, ...prev];
-      try {
-        localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
-        const customItems = updated.filter((c) => c.isCommunity || c.id.startsWith('bulk-c-'));
-        localStorage.setItem(STORAGE_KEY_COMMUNITY, JSON.stringify(customItems));
-      } catch {
-        // ignore
-      }
+      persistCoupons(updated);
       return updated;
     });
 
     setToast({
-      message: `All ${curatedCoupons.length} Curated Coupons Added!`,
-      subMessage: 'Top verified coupons and deals are now live across CodeCoupon.',
+      message: `Added ${curatedCoupons.length} Curated Coupons!`,
+      subMessage: 'New partner offers are now active across CodeCoupon.',
     });
   };
 
-  // Admin: Handle adding a new store (Add New Store)
   const handleAddStore = (newStore: StoreInfo) => {
     setStores((prev) => {
       const updated = { ...prev, [newStore.slug]: newStore };
@@ -466,11 +639,10 @@ export default function App() {
 
     setToast({
       message: `Store "${newStore.name}" Added!`,
-      subMessage: 'Store profile and deals page are now live in directory.',
+      subMessage: 'Store profile and deals page are now active in directory.',
     });
   };
 
-  // Admin: Handle updating an existing store
   const handleUpdateStore = (updatedStore: StoreInfo) => {
     setStores((prev) => {
       const updated = { ...prev, [updatedStore.slug]: updatedStore };
@@ -482,7 +654,6 @@ export default function App() {
       return updated;
     });
 
-    // Also sync existing coupons for this store if logo or brand name changed
     setCoupons((prev) => {
       const updated = prev.map((c) => {
         if (c.storeSlug.toLowerCase() === updatedStore.slug.toLowerCase()) {
@@ -492,25 +663,22 @@ export default function App() {
             storeLogoBg: updatedStore.logoBg,
             storeLogoText: updatedStore.logoText || updatedStore.name,
             storeLogoUrl: updatedStore.logoUrl,
+            countries:
+              c.countries && c.countries.length > 0 ? c.countries : updatedStore.countries,
           };
         }
         return c;
       });
-      try {
-        localStorage.setItem(STORAGE_KEY_COUPONS, JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
+      persistCoupons(updated);
       return updated;
     });
 
     setToast({
       message: `Store "${updatedStore.name}" Updated!`,
-      subMessage: 'Store profile, branding, and details updated.',
+      subMessage: 'Store profile, branding, and regional settings saved.',
     });
   };
 
-  // Admin: Handle deleting a store
   const handleDeleteStore = (slug: string) => {
     const storeName = stores[slug]?.name || slug;
     setStores((prev) => {
@@ -534,7 +702,6 @@ export default function App() {
     });
   };
 
-  // Admin: Handle adding all catalog stores in bulk (Add All Stores)
   const handleAddAllStores = (catalogStores: StoreInfo[]) => {
     setStores((prev) => {
       const updated = { ...prev };
@@ -550,12 +717,11 @@ export default function App() {
     });
 
     setToast({
-      message: `All ${catalogStores.length} Partner Stores Added!`,
-      subMessage: 'Amazon, Daraz, Nike, Walmart, eBay, Sephora & more are active.',
+      message: `Added ${catalogStores.length} Partner Stores!`,
+      subMessage: 'International brand stores are now live in the directory.',
     });
   };
 
-  // Admin: Handle deleting coupon
   const handleDeleteCoupon = (couponId: string) => {
     setCoupons((prev) => {
       const updated = prev.filter((c) => c.id !== couponId);
@@ -565,25 +731,25 @@ export default function App() {
 
     if (activeCoupon?.id === couponId) {
       setActiveCoupon(null);
-      window.location.hash = '#/';
+      navigatePath('/');
     }
 
     setToast({
-      message: `Coupon Deleted`,
+      message: 'Coupon Deleted',
       subMessage: 'The coupon has been permanently removed.',
     });
   };
 
-  // Admin: Handle toggling coupon status (verified / paused)
   const handleToggleCouponStatus = (couponId: string) => {
     setCoupons((prev) => {
       const updated = prev.map((c) => {
         if (c.id === couponId) {
           const newStatus = !c.verified;
+          const expired = isCouponExpired(c.expiryDate, c.isExpired);
           const next = {
             ...c,
             verified: newStatus,
-            verifiedText: newStatus ? 'Verified & Working' : 'Paused',
+            verifiedText: expired ? 'Expired' : newStatus ? 'Active Offer' : 'Paused',
           };
           if (activeCoupon?.id === couponId) {
             setActiveCoupon(next);
@@ -598,11 +764,10 @@ export default function App() {
 
     setToast({
       message: 'Coupon Status Updated',
-      subMessage: 'Coupon verification status updated successfully.',
+      subMessage: 'Offer visibility status updated successfully.',
     });
   };
 
-  // Admin: Handle manual reordering of coupons (Sort Coupon)
   const handleReorderCoupons = (reorderedCoupons: Coupon[], storeLabel?: string) => {
     const withOrder = reorderedCoupons.map((c, index) => ({
       ...c,
@@ -619,7 +784,6 @@ export default function App() {
     });
   };
 
-  // Admin: Handle adding new blog post
   const handleAddBlog = (newBlog: BlogPost) => {
     setBlogs((prev) => {
       const updated = [newBlog, ...prev];
@@ -637,7 +801,6 @@ export default function App() {
     });
   };
 
-  // Admin: Handle updating blog post
   const handleUpdateBlog = (updatedBlog: BlogPost) => {
     setBlogs((prev) => {
       const updated = prev.map((b) => (b.id === updatedBlog.id ? updatedBlog : b));
@@ -655,7 +818,6 @@ export default function App() {
     });
   };
 
-  // Admin: Handle deleting blog post
   const handleDeleteBlog = (blogId: string) => {
     setBlogs((prev) => {
       const blogToDelete = prev.find((b) => b.id === blogId);
@@ -675,9 +837,20 @@ export default function App() {
     });
   };
 
-  // Handle Copy Code (persists usesCount + syncs activeCoupon)
+  // Copy code or activate deal without fake usage counters
   const handleCopyCode = (coupon: Coupon) => {
-    const textToCopy = coupon.code || coupon.storeUrl;
+    if (isCouponExpired(coupon.expiryDate, coupon.isExpired)) {
+      setToast({
+        message: 'Offer Expired',
+        subMessage: 'This promotion has expired and is no longer active.',
+      });
+      return;
+    }
+
+    const storeWebsite = stores[coupon.storeSlug.toLowerCase()]?.website;
+    const resolvedUrl = resolveMerchantUrl(coupon.storeUrl, storeWebsite, coupon.storeSlug);
+    const textToCopy = coupon.code || resolvedUrl;
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(textToCopy).catch(() => {
         const textarea = document.createElement('textarea');
@@ -689,123 +862,39 @@ export default function App() {
       });
     }
 
-    setCoupons((prev) => {
-      const updated = prev.map((c) => {
-        if (c.id !== coupon.id) return c;
-        const next = { ...c, usesCount: c.usesCount + 1 };
-        if (activeCoupon?.id === coupon.id) {
-          setActiveCoupon(next);
-        }
-        return next;
-      });
-      persistCoupons(updated);
-      return updated;
-    });
-
     if (coupon.isDeal) {
       setToast({
-        message: `Deal Activated for ${coupon.store}!`,
-        subMessage: `Opening ${coupon.store} official store with discounted pricing applied.`,
+        message: `Deal Opened for ${coupon.store}!`,
+        subMessage: `Opening ${coupon.store} official website in a new tab.`,
       });
     } else {
       setToast({
-        message: `Code "${coupon.code}" Copied & Store Opened!`,
-        subMessage: `Opening ${coupon.store} in a new tab. Paste code at checkout!`,
+        message: `Code "${coupon.code}" Copied!`,
+        subMessage: `Paste this promo code at ${coupon.store} checkout.`,
       });
     }
   };
 
-  // Handle Helpful Upvote/Downvote (persists to localStorage & syncs activeCoupon)
-  const handleVote = (couponId: string, type: 'up' | 'down') => {
-    setCoupons((prev) => {
-      const updated = prev.map((c) => {
-        if (c.id !== couponId) return c;
-        let next: Coupon;
-        if (c.userVote === type) {
-          next = {
-            ...c,
-            userVote: null,
-            upvotes: type === 'up' ? Math.max(0, c.upvotes - 1) : c.upvotes,
-            downvotes: type === 'down' ? Math.max(0, c.downvotes - 1) : c.downvotes,
-          };
-        } else {
-          const prevVote = c.userVote;
-          next = {
-            ...c,
-            userVote: type,
-            upvotes: type === 'up' ? c.upvotes + 1 : prevVote === 'up' ? Math.max(0, c.upvotes - 1) : c.upvotes,
-            downvotes: type === 'down' ? c.downvotes + 1 : prevVote === 'down' ? Math.max(0, c.downvotes - 1) : c.downvotes,
-          };
-        }
-        if (activeCoupon?.id === couponId) {
-          setActiveCoupon(next);
-        }
-        return next;
-      });
-      persistCoupons(updated);
-      return updated;
-    });
-  };
-
-  // Handle adding user review and rating (persists to localStorage & syncs activeCoupon)
-  const handleAddReview = (
-    couponId: string,
-    newReviewData: Omit<CouponReview, 'id' | 'couponId' | 'helpfulCount'>
-  ) => {
-    setCoupons((prev) => {
-      const updated = prev.map((c) => {
-        if (c.id !== couponId) return c;
-
-        const newReview: CouponReview = {
-          ...newReviewData,
-          id: `rev-${Date.now()}`,
-          couponId,
-          helpfulCount: 1,
-        };
-
-        const updatedReviews = [newReview, ...(c.reviews || [])];
-        const totalRatingSum = updatedReviews.reduce((sum, r) => sum + r.rating, 0);
-        const newAverageRating = totalRatingSum / updatedReviews.length;
-        const workedCount = updatedReviews.filter((r) => r.worked).length;
-        const newSuccessRate = Math.round((workedCount / updatedReviews.length) * 100);
-
-        const next: Coupon = {
-          ...c,
-          reviews: updatedReviews,
-          averageRating: Number(newAverageRating.toFixed(1)),
-          successRate: Math.max(80, newSuccessRate),
-        };
-        if (activeCoupon?.id === couponId) {
-          setActiveCoupon(next);
-        }
-        return next;
-      });
-      persistCoupons(updated);
-      return updated;
-    });
-
-    setToast({
-      message: 'Review & Rating Submitted!',
-      subMessage: 'Thank you for helping other shoppers verify this coupon.',
-    });
-  };
-
-  // Reset all filters
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedCategory('All');
+    setSelectedCountry('ALL');
     setDealType('all');
-    setSortBy('popular');
+    setSortBy('featured');
     setActiveStoreSlug(null);
   };
 
   const hasActiveFilters = Boolean(
-    searchQuery || selectedCategory !== 'All' || dealType !== 'all'
+    searchQuery ||
+      selectedCategory !== 'All' ||
+      selectedCountry !== 'ALL' ||
+      dealType !== 'all'
   );
 
-  // Focus Search handler
   const handleFocusSearch = () => {
     setActiveStoreSlug(null);
+    setActiveInfoPage(null);
+    setActiveCoupon(null);
     const searchEl = document.getElementById('hero-search-input');
     if (searchEl) {
       searchEl.focus();
@@ -813,9 +902,9 @@ export default function App() {
     }
   };
 
-  // Filtered coupons
+  // Filtered active offers (always excludes expired & paused coupons)
   const filteredCoupons = useMemo(() => {
-    let result = [...coupons];
+    let result = [...activeCoupons];
 
     if (activeTab === 'coupons') {
       result = result.filter((c) => !c.isDeal);
@@ -825,6 +914,15 @@ export default function App() {
 
     if (selectedCategory !== 'All') {
       result = result.filter((c) => c.category === selectedCategory);
+    }
+
+    if (selectedCountry !== 'ALL') {
+      result = result.filter((c) => {
+        const storeCountries = stores[c.storeSlug.toLowerCase()]?.countries;
+        const effectiveCountries =
+          c.countries && c.countries.length > 0 ? c.countries : storeCountries;
+        return matchesCountryFilter(effectiveCountries, selectedCountry);
+      });
     }
 
     if (dealType === 'code') {
@@ -851,8 +949,14 @@ export default function App() {
     }
 
     result.sort((a, b) => {
-      if (sortBy === 'popular') {
-        return (b.usesCount + b.upvotes) - (a.usesCount + a.upvotes);
+      if (sortBy === 'featured' || sortBy === 'custom') {
+        const orderA = a.sortOrder ?? 9999;
+        const orderB = b.sortOrder ?? 9999;
+        if (orderA !== orderB) return orderA - orderB;
+        const featA = (a.featured ? 2 : 0) + (a.exclusive ? 1 : 0);
+        const featB = (b.featured ? 2 : 0) + (b.exclusive ? 1 : 0);
+        if (featB !== featA) return featB - featA;
+        return b.discountValueNum - a.discountValueNum;
       }
       if (sortBy === 'discount') {
         return b.discountValueNum - a.discountValueNum;
@@ -861,19 +965,32 @@ export default function App() {
         return (b.isCommunity ? 1 : 0) - (a.isCommunity ? 1 : 0);
       }
       if (sortBy === 'expiring') {
-        const aHours = computeHoursLeftFromDate(a.expiryDate) ?? a.expiryHoursLeft ?? Number.MAX_SAFE_INTEGER;
-        const bHours = computeHoursLeftFromDate(b.expiryDate) ?? b.expiryHoursLeft ?? Number.MAX_SAFE_INTEGER;
+        const aHours =
+          computeHoursLeftFromDate(a.expiryDate) ??
+          a.expiryHoursLeft ??
+          Number.MAX_SAFE_INTEGER;
+        const bHours =
+          computeHoursLeftFromDate(b.expiryDate) ??
+          b.expiryHoursLeft ??
+          Number.MAX_SAFE_INTEGER;
         return aHours - bHours;
       }
       return 0;
     });
 
     return result;
-  }, [coupons, activeTab, selectedCategory, dealType, searchQuery, sortBy]);
+  }, [
+    activeCoupons,
+    stores,
+    activeTab,
+    selectedCategory,
+    selectedCountry,
+    dealType,
+    searchQuery,
+    sortBy,
+  ]);
 
-  const currentStoreInfo = activeStoreSlug
-    ? stores[activeStoreSlug.toLowerCase()]
-    : null;
+  const currentStoreInfo = activeStoreSlug ? stores[activeStoreSlug.toLowerCase()] : null;
 
   const handleAdminGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -906,7 +1023,9 @@ export default function App() {
     } catch {
       // ignore
     }
-    const displayName = idOk ? adminCreds.adminName : rawId.split('@')[0] || adminCreds.adminName;
+    const displayName = idOk
+      ? adminCreds.adminName
+      : rawId.split('@')[0] || adminCreds.adminName;
     setCurrentUser({
       name: displayName,
       email: idOk ? adminCreds.adminId : rawId,
@@ -937,9 +1056,10 @@ export default function App() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => {
                   setViewMode('website');
-                  window.location.hash = '#/';
+                  navigatePath('/');
                 }}
                 className="text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
               >
@@ -967,7 +1087,7 @@ export default function App() {
                     required
                     value={gateId}
                     onChange={(e) => setGateId(e.target.value)}
-                    placeholder="Enter admin ID"
+                    placeholder="admin@codecoupon.com"
                     className="w-full text-xs pl-9 pr-3 py-2.5 bg-[#121824] border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
                   />
                 </div>
@@ -1000,7 +1120,8 @@ export default function App() {
               {getAdminCredentials().password === 'admin' && (
                 <div className="pt-2 border-t border-slate-800 space-y-2">
                   <p className="text-[11px] text-slate-400 text-center">
-                    Default ID: <span className="text-white font-mono">admin</span> · Password: <span className="text-white font-mono">admin</span>
+                    Default ID: <span className="text-white font-mono">admin</span> · Password:{' '}
+                    <span className="text-white font-mono">admin</span>
                   </p>
                   <button
                     type="button"
@@ -1046,7 +1167,7 @@ export default function App() {
           activeNav={adminTab}
           onNavChange={(nav) => {
             setAdminTab(nav);
-            window.location.hash = nav === 'dashboard' ? '#/admin' : `#/admin/${nav}`;
+            navigatePath(nav === 'dashboard' ? '/admin' : `/admin/${nav}`);
           }}
           currentUser={currentUser}
           onUpdateCurrentUser={(updated) => setCurrentUser({ ...updated, role: 'admin' })}
@@ -1069,20 +1190,17 @@ export default function App() {
           onDeleteBlog={handleDeleteBlog}
           onViewWebsite={() => {
             setViewMode('website');
-            window.location.hash = '#/';
+            navigatePath('/');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
 
-        {/* Login Modal */}
         <LoginModal
           isOpen={isLoginModalOpen}
           onClose={() => setIsLoginModalOpen(false)}
           onLoginSuccess={handleLoginSuccess}
-          initialMode={loginModalMode}
         />
 
-        {/* Toast Notification */}
         {toast && (
           <Toast
             message={toast.message}
@@ -1096,32 +1214,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans selection:bg-orange-500/20 selection:text-orange-950">
-      
       {/* Top Header */}
       <Header
-        onOpenLogin={() => {
-          setLoginModalMode('shopper');
-          setIsLoginModalOpen(true);
-        }}
-        onOpenBackendLogin={() => {
-          setLoginModalMode('admin');
-          setIsLoginModalOpen(true);
-        }}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenBackendLogin={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
         currentUser={currentUser}
         activeTab={activeTab}
+        activeInfoPage={activeInfoPage}
         setActiveTab={(tab) => navigateToTab(tab)}
+        onNavigateInfo={navigateToInfoPage}
+        selectedCountry={selectedCountry}
+        onSelectCountry={setSelectedCountry}
         onResetFilters={handleResetFilters}
         onFocusSearch={handleFocusSearch}
         onOpenAdmin={() => {
           setViewMode('admin');
-          window.location.hash = '#/admin';
+          navigatePath('/admin');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
 
-      {/* Hero Section (only shown on home page when not in dedicated sub-pages) */}
-      {!activeCoupon && !activeStoreSlug && activeTab === 'home' && (
+      {/* Hero Section (only shown on homepage when not on sub-pages or info pages) */}
+      {!activeInfoPage && !activeCoupon && !activeStoreSlug && activeTab === 'home' && (
         <HeroSection
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
@@ -1131,76 +1246,83 @@ export default function App() {
           }}
           onSelectStore={navigateToStore}
           onCopyCode={handleCopyCode}
-          coupons={coupons}
+          coupons={activeCoupons}
           stores={stores}
         />
       )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-10">
-        
-        {/* VIEW 1: DEDICATED INDIVIDUAL COUPON PAGE */}
-        {activeCoupon ? (
+        {activeInfoPage ? (
+          <InfoPages
+            page={activeInfoPage}
+            onBack={() => navigateToTab('home')}
+            onSelectPage={navigateToInfoPage}
+            onOpenStores={() => navigateToTab('stores')}
+            onContactSubmit={(payload) => {
+              setToast({
+                message: 'Message Submitted',
+                subMessage: `Thank you, ${payload.name}. Your inquiry has been logged for ${payload.topic}.`,
+              });
+            }}
+          />
+        ) : activeCoupon ? (
           <CouponDetailPage
             coupon={activeCoupon}
             store={stores[activeCoupon.storeSlug.toLowerCase()]}
-            allCoupons={coupons}
+            allCoupons={activeCoupons}
             onBack={() => {
               setActiveCoupon(null);
-              window.location.hash = '#/';
+              navigatePath('/');
             }}
             onSelectCoupon={navigateToCoupon}
             onSelectStore={navigateToStore}
             onCopyCode={handleCopyCode}
-            onVote={handleVote}
-            onOpenReviewModal={(c) => setActiveReviewCoupon(c)}
           />
         ) : activeStoreSlug && currentStoreInfo ? (
-          /* VIEW 2: DEDICATED STORE PAGE */
           <StorePage
             store={currentStoreInfo}
-            coupons={coupons}
+            coupons={activeCoupons}
             onBack={() => {
               setActiveStoreSlug(null);
-              window.location.hash = '#/';
+              navigatePath('/');
             }}
             onCopyCode={handleCopyCode}
             onOpenDetails={navigateToCoupon}
-            onVote={handleVote}
-            onOpenReviewModal={(c) => setActiveReviewCoupon(c)}
           />
         ) : activeTab === 'stores' ? (
-          /* VIEW 3: DEDICATED STORES DIRECTORY PAGE */
           <StoresDirectoryPage
             stores={stores}
+            coupons={activeCoupons}
+            selectedCountry={selectedCountry}
+            onSelectCountry={setSelectedCountry}
             onSelectStore={navigateToStore}
             onBackToHome={() => navigateToTab('home')}
           />
         ) : activeTab === 'blog' ? (
-          /* VIEW 4: DEDICATED BLOG VIEW */
           <BlogSection blogs={blogs} onBackToDeals={() => navigateToTab('home')} />
         ) : (
-          /* VIEW 5: HOMEPAGE / DEDICATED COUPONS, DEALS & CATEGORIES VIEW */
           <>
             {activeTab !== 'home' && (
               <div className="bg-gradient-to-r from-slate-900 via-[#101726] to-slate-900 rounded-2xl p-6 text-white border border-slate-800 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                   <h1 className="text-2xl font-black font-heading text-white">
                     {activeTab === 'coupons'
-                      ? 'Verified Promo Codes & Coupons'
+                      ? 'Active Promo Codes & Coupons'
                       : activeTab === 'deals'
                       ? 'Direct Online Sales & Deals'
-                      : 'Browse Deals by Category'}
+                      : 'Browse Offers by Category'}
                   </h1>
                   <p className="text-xs text-slate-300 mt-1">
                     {activeTab === 'coupons'
-                      ? 'Copy verified promo codes to apply instant discounts at checkout.'
+                      ? 'Copy checked promo codes with clear regional availability and expiration dates.'
                       : activeTab === 'deals'
-                      ? 'Direct deals with price reductions automatically applied at retailer checkout.'
-                      : 'Select a shopping category below to filter verified promo codes and store discounts.'}
+                      ? 'Direct merchant offers with promotional pricing applied on partner websites.'
+                      : 'Select a shopping category below to filter active promo codes and regional store discounts.'}
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={() => navigateToTab('home')}
                   className="text-xs font-bold text-orange-400 hover:text-white bg-slate-800 px-4 py-2 rounded-xl border border-slate-700 transition-colors cursor-pointer shrink-0"
                 >
@@ -1209,7 +1331,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Category Grid placed prominently at top when browsing Categories tab */}
             {activeTab === 'categories' && (
               <div id="categories-grid-anchor">
                 <ShopByCategoryGrid
@@ -1223,22 +1344,21 @@ export default function App() {
               </div>
             )}
 
-            {/* 1. Top Stores Grid (Homepage) */}
             {activeTab === 'home' && (
               <div id="stores-grid-anchor">
                 <TopStoresGrid
                   stores={stores}
-                  coupons={coupons}
+                  coupons={activeCoupons}
                   onSelectStore={navigateToStore}
                   onViewAllStores={() => navigateToTab('stores')}
                 />
               </div>
             )}
 
-            {/* 2. Featured Deals Section (Homepage) */}
             {activeTab === 'home' && (
               <FeaturedDealsSection
-                coupons={coupons}
+                coupons={activeCoupons}
+                stores={stores}
                 onCopyCode={handleCopyCode}
                 onOpenDetails={navigateToCoupon}
                 onSelectStore={navigateToStore}
@@ -1249,37 +1369,40 @@ export default function App() {
               />
             )}
 
-            {/* 3. Main Split Grid: Left Deals List & Right Sidebar */}
-            <div id="deals-list-anchor" className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-2">
-              
+            <div
+              id="deals-list-anchor"
+              className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pt-2"
+            >
               {/* Left Column: All Coupons List & Controls */}
               <div className="lg:col-span-8 space-y-6">
-                
-                {/* Deal Controls Bar */}
                 <DealControlsBar
                   dealType={dealType}
                   setDealType={setDealType}
                   sortBy={sortBy}
                   setSortBy={setSortBy}
+                  selectedCountry={selectedCountry}
+                  setSelectedCountry={setSelectedCountry}
                   totalResults={filteredCoupons.length}
                   hasActiveFilters={hasActiveFilters}
                   onResetFilters={handleResetFilters}
                 />
 
-                {/* Coupons List */}
                 {filteredCoupons.length > 0 ? (
                   <div className="space-y-4">
-                    {filteredCoupons.map((coupon) => (
-                      <CouponCard
-                        key={coupon.id}
-                        coupon={coupon}
-                        onCopyCode={handleCopyCode}
-                        onOpenDetails={navigateToCoupon}
-                        onVote={handleVote}
-                        onOpenReviewModal={(c) => setActiveReviewCoupon(c)}
-                        onSelectStore={navigateToStore}
-                      />
-                    ))}
+                    {filteredCoupons.map((coupon) => {
+                      const storeInfo = stores[coupon.storeSlug.toLowerCase()];
+                      return (
+                        <CouponCard
+                          key={coupon.id}
+                          coupon={coupon}
+                          storeWebsite={storeInfo?.website}
+                          storeCountries={storeInfo?.countries}
+                          onCopyCode={handleCopyCode}
+                          onOpenDetails={navigateToCoupon}
+                          onSelectStore={navigateToStore}
+                        />
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-lg mx-auto shadow-xs space-y-4">
@@ -1288,14 +1411,15 @@ export default function App() {
                     </div>
                     <div>
                       <h3 className="text-base font-bold text-slate-900 font-heading">
-                        No coupons found matching your criteria
+                        No active coupons match your filters
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        Try clearing search terms or reset filters to see all verified codes.
+                        Try clearing search terms, switching regions, or resetting filters to view all active offers.
                       </p>
                     </div>
                     <div className="pt-2 flex items-center justify-center">
                       <button
+                        type="button"
                         onClick={handleResetFilters}
                         className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                       >
@@ -1307,27 +1431,23 @@ export default function App() {
                 )}
               </div>
 
-              {/* Right Column: Popular Deals & Newsletter Widget */}
+              {/* Right Column: Featured Deals & Newsletter Widget */}
               <div className="lg:col-span-4">
                 <SidebarDealsWidget
-                  popularCoupons={coupons}
+                  popularCoupons={activeCoupons}
                   onSelectCoupon={navigateToCoupon}
                   onSelectStore={navigateToStore}
-                  onViewAllDeals={() => {
-                    navigateToTab('deals');
-                  }}
+                  onViewAllDeals={() => navigateToTab('deals')}
                   onSubscribe={(email) => {
                     setToast({
                       message: `Subscribed ${email}!`,
-                      subMessage: 'You will now receive the freshest verified promo codes.',
+                      subMessage: 'You will receive active store coupon alerts and updates.',
                     });
                   }}
                 />
               </div>
-
             </div>
 
-            {/* 4. Shop by Category Grid (shown below deals on non-category tabs) */}
             {activeTab !== 'categories' && (
               <div id="categories-grid-anchor" className="pt-8">
                 <ShopByCategoryGrid
@@ -1342,7 +1462,6 @@ export default function App() {
             )}
           </>
         )}
-
       </main>
 
       {/* Footer */}
@@ -1355,46 +1474,46 @@ export default function App() {
             if (listEl) listEl.scrollIntoView({ behavior: 'smooth' });
           }, 80);
         }}
-        onSelectNav={(tab) => {
-          navigateToTab(tab);
-        }}
+        onSelectNav={(tab) => navigateToTab(tab)}
+        onNavigateInfo={navigateToInfoPage}
         onSubscribe={(email) => {
           setToast({
             message: `Subscribed ${email}!`,
-            subMessage: 'Weekly top coupons and seasonal alerts will be delivered to your inbox.',
+            subMessage: 'Weekly coupon alerts and store promotions will be delivered to your inbox.',
           });
         }}
         onOpenAdminPortal={() => {
           setViewMode('admin');
-          window.location.hash = '#/admin';
+          navigatePath('/admin');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
       />
 
-      {/* Modals & Dialogs */}
+      {/* Quick View Modal */}
       <CouponModal
         coupon={activeCouponModal}
+        storeWebsite={
+          activeCouponModal
+            ? stores[activeCouponModal.storeSlug.toLowerCase()]?.website
+            : undefined
+        }
+        storeCountries={
+          activeCouponModal
+            ? stores[activeCouponModal.storeSlug.toLowerCase()]?.countries
+            : undefined
+        }
         onClose={() => setActiveCouponModal(null)}
         onCopyCode={handleCopyCode}
-        onVote={handleVote}
-      />
-
-      <CouponReviewModal
-        coupon={activeReviewCoupon}
-        isOpen={Boolean(activeReviewCoupon)}
-        onClose={() => setActiveReviewCoupon(null)}
-        onSubmitReview={handleAddReview}
       />
 
       <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         onLoginSuccess={handleLoginSuccess}
-        initialMode={loginModalMode}
       />
 
-      {/* Floating Multi-Turn Deal Assistant Chatbot */}
-      <SavingsChatWidget coupons={coupons} stores={stores} />
+      {/* Floating Deal Assistant Chatbot */}
+      <SavingsChatWidget coupons={activeCoupons} stores={stores} />
 
       {/* Toast Notification */}
       {toast && (
@@ -1404,7 +1523,6 @@ export default function App() {
           onClose={() => setToast(null)}
         />
       )}
-
     </div>
   );
 }

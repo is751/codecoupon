@@ -1,8 +1,21 @@
 import React, { useState, useRef } from 'react';
-import { X, Tag, Plus, Sparkles, Check, Layers, Calendar, Upload, Image as ImageIcon, Link2 } from 'lucide-react';
+import {
+  X,
+  Tag,
+  Plus,
+  Sparkles,
+  Layers,
+  Calendar,
+  Upload,
+  Image as ImageIcon,
+  Link2,
+  Globe,
+} from 'lucide-react';
 import { Category, Coupon, StoreInfo } from '../../types/coupon';
 import { STORES_DATA } from '../../data/coupons';
-import { computeHoursLeftFromDate, getExpiryInfo } from '../../utils/expiry';
+import { COUNTRIES, CountryCode } from '../../utils/countries';
+import { computeHoursLeftFromDate, getExpiryInfo, isCouponExpired } from '../../utils/expiry';
+import { resolveMerchantUrl } from '../../utils/url';
 
 interface CouponActionModalProps {
   isOpen: boolean;
@@ -13,7 +26,6 @@ interface CouponActionModalProps {
   initialMode?: 'single' | 'bulk';
 }
 
-// Rich curated batch of high-value trending coupons ready for 1-click bulk import
 const BULK_CURATED_COUPONS: Coupon[] = [
   {
     id: 'bulk-c-1',
@@ -23,28 +35,28 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'amazon',
     storeBrandColor: '#FF9900',
     category: 'Tech & Electronics',
-    title: '50% OFF Amazon Echo Dot & Fire TV 4K Streamers',
-    description: 'Instant discount on bestselling Amazon devices with hands-free Alexa smart home setup and free Prime delivery.',
-    discountBadge: '50% OFF',
+    title: 'Up to 35% Off Amazon Smart Home & Fire TV Devices',
+    description:
+      'Seasonal savings on select Echo speakers, Fire TV Stick streaming hardware, and Kindle e-readers sold directly by Amazon.',
+    discountBadge: 'UP TO 35% OFF',
     discountType: 'percentage',
-    discountValueNum: 50,
-    code: 'ECHO50NOW',
-    isDeal: false,
-    storeUrl: 'https://www.amazon.com',
+    discountValueNum: 35,
+    isDeal: true,
+    storeUrl: 'https://www.amazon.com/deals',
     verified: true,
-    verifiedText: 'Verified & Working Today',
-    successRate: 98,
-    usesCount: 3840,
-    expiryDate: '2026-11-30',
-    expiryHoursLeft: 48,
-    terms: ['Valid on eligible Amazon devices', 'Cannot be combined with trade-in credits'],
-    exclusive: true,
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2026-12-31',
+    countries: ['US', 'UK', 'CA', 'DE'],
+    minSpend: 'Valid on select Amazon devices while inventory lasts',
+    terms: [
+      'Discount reflects on participating Amazon-sold hardware listings',
+      'Subject to stock availability and regional store domain',
+    ],
+    exclusive: false,
     featured: true,
     trending: true,
-    upvotes: 412,
-    downvotes: 8,
-    reviews: [],
-    averageRating: 4.9,
+    tags: ['Electronics', 'Direct Offer'],
   },
   {
     id: 'bulk-c-2',
@@ -54,28 +66,29 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'Daraz',
     storeBrandColor: '#FF6600',
     category: 'Tech & Electronics',
-    title: 'Flat 70% OFF Daraz 11.11 Mega Shopping Festival',
-    description: 'Biggest online sale of the year across smartphones, smart electronics, fashion apparel, and home appliances.',
-    discountBadge: '70% OFF',
+    title: 'Up to 25% Off Year-End Electronics & Home Essentials',
+    description:
+      'Voucher savings across participating DarazMall stores for smartphones, kitchen appliances, and seasonal accessories.',
+    discountBadge: 'UP TO 25% OFF',
     discountType: 'percentage',
-    discountValueNum: 70,
-    code: 'DARAZ1111',
+    discountValueNum: 25,
+    code: 'DARAZSAVE25',
     isDeal: false,
     storeUrl: 'https://www.daraz.pk',
     verified: true,
-    verifiedText: 'Mega Festival Code',
-    successRate: 99,
-    usesCount: 5240,
-    expiryDate: '2026-12-15',
-    expiryHoursLeft: 72,
-    terms: ['Sitewide voucher', 'Applicable on DarazMall stores'],
-    exclusive: true,
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2026-12-31',
+    countries: ['PK'],
+    minSpend: 'Minimum basket Rs. 3,000',
+    terms: [
+      'Valid on participating DarazMall partner stores',
+      'One redemption per registered account',
+    ],
+    exclusive: false,
     featured: true,
     trending: true,
-    upvotes: 680,
-    downvotes: 12,
-    reviews: [],
-    averageRating: 5.0,
+    tags: ['DarazMall', 'Electronics'],
   },
   {
     id: 'bulk-c-3',
@@ -85,28 +98,29 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'NIKE',
     storeBrandColor: '#111111',
     category: 'Fashion & Apparel',
-    title: '30% OFF Nike Member Fall Running & Air Max Collection',
-    description: 'Take an extra 30% off selected Pegasus, InfinityRN, and Air Max models at official Nike online checkout.',
-    discountBadge: '30% OFF',
+    title: '20% Off Select Nike Running & Training Styles',
+    description:
+      'Apply promo code MEMBER20 on eligible footwear and athletic apparel in the seasonal sale section.',
+    discountBadge: '20% OFF',
     discountType: 'percentage',
-    discountValueNum: 30,
-    code: 'FALLRUN30',
+    discountValueNum: 20,
+    code: 'MEMBER20',
     isDeal: false,
     storeUrl: 'https://www.nike.com',
     verified: true,
-    verifiedText: 'Staff Verified',
-    successRate: 97,
-    usesCount: 2950,
-    expiryDate: '2026-12-10',
-    expiryHoursLeft: 408,
-    terms: ['Nike Member sign-in required', 'Free standard delivery'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2027-01-15',
+    countries: ['US', 'UK', 'CA', 'AU', 'DE'],
+    minSpend: 'Nike Member sign-in required',
+    terms: [
+      'Nike Member sign-in required at checkout',
+      'Excludes limited-edition SNKRS releases and gift cards',
+    ],
     exclusive: false,
     featured: true,
     trending: true,
-    upvotes: 320,
-    downvotes: 6,
-    reviews: [],
-    averageRating: 4.8,
+    tags: ['Apparel', 'Footwear'],
   },
   {
     id: 'bulk-c-4',
@@ -116,27 +130,28 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'Walmart',
     storeBrandColor: '#0071DC',
     category: 'Home & Lifestyle',
-    title: 'Free Express Grocery & Essentials Delivery ($35+ Orders)',
-    description: 'Get doorstep delivery on fresh produce, groceries, and cleaning essentials with zero delivery markup.',
-    discountBadge: 'FREE DELIVERY',
+    title: 'Free Shipping on Eligible Orders Over $35',
+    description:
+      'Automatic free standard shipping on qualifying online orders over $35 shipped and sold by Walmart.',
+    discountBadge: 'FREE SHIPPING',
     discountType: 'free_shipping',
     discountValueNum: 15,
-    code: 'WMTFREEDEL',
     isDeal: true,
     storeUrl: 'https://www.walmart.com',
     verified: true,
-    verifiedText: 'Auto-applied deal',
-    successRate: 96,
-    usesCount: 2180,
-    expiryDate: '2026-12-31',
-    terms: ['Minimum $35 basket order', 'Valid for new & existing customers'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2027-01-31',
+    countries: ['US', 'CA'],
+    minSpend: 'Minimum $35 qualifying basket',
+    terms: [
+      'Minimum $35 subtotal required before tax',
+      'Excludes freight or marketplace-only surcharges',
+    ],
     exclusive: false,
     featured: true,
     trending: false,
-    upvotes: 210,
-    downvotes: 4,
-    reviews: [],
-    averageRating: 4.7,
+    tags: ['Free Shipping', 'Groceries'],
   },
   {
     id: 'bulk-c-5',
@@ -146,27 +161,29 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'HOSTINGER',
     storeBrandColor: '#673DE6',
     category: 'Hosting & Software',
-    title: '75% OFF Premium Web Hosting + Free Domain & SSL',
-    description: 'Launch fast WordPress websites with unlimited bandwidth, AI site generator, and 24/7 technical assistance.',
-    discountBadge: '75% OFF',
+    title: 'Up to 75% Off Introductory Web Hosting + Free Domain',
+    description:
+      'Apply code CODECOUPON75 on eligible annual Premium or Business hosting subscriptions with SSL included.',
+    discountBadge: 'UP TO 75% OFF',
     discountType: 'percentage',
     discountValueNum: 75,
     code: 'CODECOUPON75',
     isDeal: false,
     storeUrl: 'https://www.hostinger.com',
     verified: true,
-    verifiedText: 'Exclusive Partnership',
-    successRate: 99,
-    usesCount: 1890,
-    expiryDate: '2026-12-31',
-    terms: ['Valid on 12-month and 48-month hosting plans'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2027-01-31',
+    countries: ['GLOBAL'],
+    minSpend: 'Requires 12-month or longer billing cycle',
+    terms: [
+      'Applies to new introductory hosting terms',
+      'Standard renewal pricing applies after the first term',
+    ],
     exclusive: true,
     featured: true,
     trending: true,
-    upvotes: 440,
-    downvotes: 2,
-    reviews: [],
-    averageRating: 5.0,
+    tags: ['Hosting', 'Global'],
   },
   {
     id: 'bulk-c-6',
@@ -176,27 +193,28 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'SEPHORA',
     storeBrandColor: '#000000',
     category: 'Beauty & Wellness',
-    title: '20% OFF Sitewide Beauty Insider Holiday Sale',
-    description: 'Unlock 20% off high-end perfumes, skincare regimens, and trending cosmetic kits with Beauty Insider code.',
-    discountBadge: '20% OFF',
-    discountType: 'percentage',
-    discountValueNum: 20,
-    code: 'YAYSAVE20',
-    isDeal: false,
+    title: 'Free Standard Shipping for Beauty Insider Members',
+    description:
+      'Join Sephora Beauty Insider for free to unlock complimentary standard shipping on eligible online orders.',
+    discountBadge: 'FREE SHIPPING',
+    discountType: 'free_shipping',
+    discountValueNum: 10,
+    isDeal: true,
     storeUrl: 'https://www.sephora.com',
     verified: true,
-    verifiedText: 'Verified Promo',
-    successRate: 95,
-    usesCount: 1670,
-    expiryDate: '2026-11-25',
-    terms: ['Beauty Insider membership required (free to join)'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2027-01-31',
+    countries: ['US', 'CA'],
+    minSpend: 'Free Beauty Insider account required',
+    terms: [
+      'Must be signed into a Sephora Beauty Insider account at checkout',
+      'Excludes expedited or same-day courier fees',
+    ],
     exclusive: false,
     featured: true,
     trending: true,
-    upvotes: 280,
-    downvotes: 7,
-    reviews: [],
-    averageRating: 4.8,
+    tags: ['Beauty', 'Free Shipping'],
   },
   {
     id: 'bulk-c-7',
@@ -206,8 +224,9 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'ebay',
     storeBrandColor: '#E53238',
     category: 'Tech & Electronics',
-    title: '15% OFF Certified Refurbished Apple & Dell Laptops',
-    description: 'Save an extra 15% on thoroughly tested refurbished computers with official 2-year Allstate warranty.',
+    title: '15% Off Certified Refurbished Tech & Electronics',
+    description:
+      'Save 15% on qualifying certified refurbished laptops, audio gear, and tools from participating sellers.',
     discountBadge: '15% OFF',
     discountType: 'percentage',
     discountValueNum: 15,
@@ -215,18 +234,19 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     isDeal: false,
     storeUrl: 'https://www.ebay.com',
     verified: true,
-    verifiedText: 'Verified by eBay',
-    successRate: 96,
-    usesCount: 1420,
-    expiryDate: '2026-12-05',
-    terms: ['Max discount $100', 'Valid on certified refurbished items only'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2026-12-28',
+    countries: ['US', 'UK', 'CA', 'AU', 'DE'],
+    minSpend: 'Minimum purchase $50; max discount $100',
+    terms: [
+      'Valid on eligible Certified Refurbished event listings',
+      'Maximum discount capped at $100 per transaction',
+    ],
     exclusive: false,
     featured: false,
     trending: true,
-    upvotes: 195,
-    downvotes: 5,
-    reviews: [],
-    averageRating: 4.7,
+    tags: ['Refurbished', 'Tech'],
   },
   {
     id: 'bulk-c-8',
@@ -236,8 +256,9 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     storeLogoText: 'AliExpress',
     storeBrandColor: '#FF4747',
     category: 'Tech & Electronics',
-    title: '$12 OFF Orders Over $80 on Global Choice Selection',
-    description: 'Direct factory pricing discount on smart gadgets, LED fixtures, and auto accessories with tracking.',
+    title: '$12 Off Qualifying Choice Orders Over $80',
+    description:
+      'Apply code CHOICE12 at checkout on eligible AliExpress Choice baskets above $80.',
     discountBadge: '$12 OFF',
     discountType: 'fixed',
     discountValueNum: 12,
@@ -245,18 +266,19 @@ const BULK_CURATED_COUPONS: Coupon[] = [
     isDeal: false,
     storeUrl: 'https://www.aliexpress.com',
     verified: true,
-    verifiedText: 'Verified Code',
-    successRate: 94,
-    usesCount: 2310,
-    expiryDate: '2026-11-28',
-    terms: ['Orders $80 and above', 'Free shipping included'],
+    verifiedText: 'Checked Nov 2026',
+    isExpired: false,
+    expiryDate: '2026-12-24',
+    countries: ['GLOBAL'],
+    minSpend: 'Minimum order $80 excluding shipping',
+    terms: [
+      'Applicable to eligible Choice marketplace items',
+      'Currency equivalents vary by shipping destination',
+    ],
     exclusive: true,
     featured: false,
     trending: true,
-    upvotes: 215,
-    downvotes: 9,
-    reviews: [],
-    averageRating: 4.6,
+    tags: ['Global', 'Choice'],
   },
 ];
 
@@ -268,7 +290,6 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
   stores,
   initialMode = 'single',
 }) => {
-  // Selected sub-tab: 'single' (Add New Coupon) | 'bulk' (Add All Coupon)
   const [activeMode, setActiveMode] = useState<'single' | 'bulk'>(initialMode);
 
   React.useEffect(() => {
@@ -277,16 +298,16 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
     }
   }, [isOpen, initialMode]);
 
-  // Available stores for smart domain matching when URL is entered
   const allStoresRecord = stores || STORES_DATA;
   const storeOptions = Object.values(allStoresRecord);
 
-  // Single Form State (Simplified to requested 6 fields)
+  // Single Form State
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [storeUrl, setStoreUrl] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [code, setCode] = useState('');
+  const [selectedCountries, setSelectedCountries] = useState<CountryCode[]>(['GLOBAL']);
 
   // Coupon Logo Upload States
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -295,7 +316,18 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
 
   const expiryPreview = getExpiryInfo(expiryDate);
 
-  // Handle Logo Image File Upload -> Convert to Base64 String
+  const toggleCountry = (countryCode: CountryCode) => {
+    setSelectedCountries((prev) => {
+      if (countryCode === 'GLOBAL') return ['GLOBAL'];
+      const withoutGlobal = prev.filter((c) => c !== 'GLOBAL');
+      const exists = withoutGlobal.includes(countryCode);
+      const next = exists
+        ? withoutGlobal.filter((c) => c !== countryCode)
+        : [...withoutGlobal, countryCode];
+      return next.length > 0 ? next : ['GLOBAL'];
+    });
+  };
+
   const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -306,8 +338,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
       setLogoError(null);
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setLogoPreview(base64String);
+        setLogoPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -321,7 +352,6 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
     }
   };
 
-  // Resolve store metadata automatically from URL or offer title
   const resolveStoreFromInput = (rawUrl: string, offerTitle: string) => {
     const cleanUrl = rawUrl.trim();
     if (cleanUrl) {
@@ -378,21 +408,20 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
         category: matchedByTitle.category,
         storeLogoBg: matchedByTitle.logoBg || 'bg-[#FF6600]',
         fallbackLogo: matchedByTitle.logoUrl,
-        safeUrl: cleanUrl || matchedByTitle.website,
+        safeUrl: resolveMerchantUrl(cleanUrl, matchedByTitle.website, matchedByTitle.slug),
       };
     }
 
     return {
-      store: 'Featured Store',
-      storeSlug: 'featured-store',
+      store: 'Partner Store',
+      storeSlug: 'partner-store',
       category: 'Tech & Electronics' as Category,
       storeLogoBg: 'bg-[#FF6600]',
       fallbackLogo: undefined,
-      safeUrl: cleanUrl || 'https://example.com',
+      safeUrl: resolveMerchantUrl(cleanUrl, undefined, 'codecoupon'),
     };
   };
 
-  // Handle Single Coupon Submit
   const handleSingleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
@@ -407,6 +436,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
 
     const finalLogo = logoPreview || resolved.fallbackLogo;
     const cleanedExpiry = expiryDate.trim() || undefined;
+    const expired = isCouponExpired(cleanedExpiry, false);
 
     const newCoupon: Coupon = {
       id: `admin-c-${Date.now()}`,
@@ -420,7 +450,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
       title: title.trim(),
       description:
         description.trim() ||
-        `Verified discount offer for ${resolved.store}. Save today with this offer.`,
+        `Promotional offer for ${resolved.store}. Review merchant terms at checkout.`,
       discountBadge,
       discountType: isDeal ? 'fixed' : 'percentage',
       discountValueNum: discountNum,
@@ -428,22 +458,17 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
       isDeal,
       storeUrl: resolved.safeUrl,
       verified: true,
-      verifiedText: 'Verified & Working',
-      successRate: 98,
-      usesCount: 1,
+      verifiedText: expired ? 'Expired' : 'Active Offer',
+      isExpired: expired,
       expiryDate: cleanedExpiry,
       expiryHoursLeft: computeHoursLeftFromDate(cleanedExpiry),
-      terms: ['Subject to retailer terms', 'May not combine with other offers'],
-      exclusive: true,
+      countries: selectedCountries,
+      terms: ['Subject to merchant terms and exclusions at checkout'],
+      exclusive: false,
       featured: true,
       trending: true,
-      tags: ['Verified', 'Featured Deal'],
-      upvotes: 1,
-      downvotes: 0,
-      userVote: null,
+      tags: ['Active Offer'],
       isCommunity: true,
-      reviews: [],
-      averageRating: 5.0,
     };
 
     onAddCoupon(newCoupon);
@@ -452,6 +477,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
     setStoreUrl('');
     setExpiryDate('');
     setCode('');
+    setSelectedCountries(['GLOBAL']);
     setLogoPreview(null);
     setLogoError(null);
     if (fileInputRef.current) {
@@ -460,7 +486,6 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
     onClose();
   };
 
-  // Handle Bulk Add All Coupons
   const handleBulkAddAll = () => {
     onAddAllCoupons(BULK_CURATED_COUPONS);
     onClose();
@@ -470,26 +495,24 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
-      <div 
+      <div
         className="bg-[#0B0F17] text-white rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl border border-slate-800 animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
         role="dialog"
       >
-        {/* Header */}
         <div className="p-6 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-orange-500/15 text-[#FF6600] flex items-center justify-center border border-orange-500/20">
               <Tag className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold font-heading text-white">
-                Manage Coupons
-              </h2>
+              <h2 className="text-lg font-bold font-heading text-white">Manage Coupons</h2>
               <p className="text-xs text-slate-400">
-                Choose an option to create a single coupon or import all trending coupons in bulk.
+                Create a new coupon offer with target regions or import the curated batch.
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
             aria-label="Close"
@@ -498,10 +521,6 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
           </button>
         </div>
 
-        {/* 2 Options Tab Bar matching user's exact request:
-            1. Add New Coupon
-            2. Add All Coupon
-        */}
         <div className="grid grid-cols-2 p-2 bg-[#0E131F] border-b border-slate-800 gap-2">
           <button
             type="button"
@@ -526,11 +545,10 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>2. Add All Coupons ({BULK_CURATED_COUPONS.length}+ Batch)</span>
+            <span>2. Add All Coupons ({BULK_CURATED_COUPONS.length} Offers)</span>
           </button>
         </div>
 
-        {/* Tab 1: ADD NEW COUPON (Clean 6-Field Form) */}
         {activeMode === 'single' ? (
           <form onSubmit={handleSingleSubmit} className="p-6 space-y-4 overflow-y-auto">
             <div>
@@ -542,7 +560,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                 required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. 25% OFF Sitewide Orders"
+                placeholder="e.g. 20% Off Orders Over $75"
                 className="w-full text-xs px-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
               />
             </div>
@@ -562,7 +580,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
 
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                Offer / Brand URL
+                Offer / Affiliate URL
               </label>
               <div className="relative flex items-center">
                 <Link2 className="w-4 h-4 text-slate-500 absolute left-3 pointer-events-none" />
@@ -570,7 +588,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                   type="url"
                   value={storeUrl}
                   onChange={(e) => setStoreUrl(e.target.value)}
-                  placeholder="https://www.store.com/deal"
+                  placeholder="https://www.merchant-store.com/offer"
                   className="w-full text-xs pl-9 pr-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
                 />
               </div>
@@ -616,13 +634,40 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                   type="text"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  placeholder="e.g. SAVE25 (optional for deals)"
+                  placeholder="e.g. SAVE20 (leave blank for deal)"
                   className="w-full text-xs px-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600] uppercase font-mono"
                 />
               </div>
             </div>
 
-            {/* Coupon / Brand Logo Upload */}
+            {/* Country / Region Targeting */}
+            <div className="p-3.5 rounded-xl bg-[#121824] border border-slate-700/80 space-y-2">
+              <label className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
+                <Globe className="w-3.5 h-3.5 text-[#FF6600]" />
+                <span>Target Countries / Regions</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {COUNTRIES.map((country) => {
+                  const isSelected = selectedCountries.includes(country.code);
+                  return (
+                    <button
+                      key={country.code}
+                      type="button"
+                      onClick={() => toggleCountry(country.code)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                          : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:border-slate-500'
+                      }`}
+                    >
+                      {country.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Logo Upload */}
             <div className="p-4 rounded-xl bg-[#121824] border border-slate-700/80 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider">
@@ -679,9 +724,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                 </div>
               </div>
 
-              {logoError && (
-                <p className="text-[11px] text-rose-400 font-medium">{logoError}</p>
-              )}
+              {logoError && <p className="text-[11px] text-rose-400 font-medium">{logoError}</p>}
             </div>
 
             <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-800">
@@ -697,26 +740,24 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                 className="px-5 py-2.5 bg-[#FF6600] hover:bg-[#FA5A00] text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-[0.98] cursor-pointer flex items-center gap-2"
               >
                 <Plus className="w-4 h-4" />
-                <span>Save & Add New Coupon</span>
+                <span>Save &amp; Add New Coupon</span>
               </button>
             </div>
           </form>
         ) : (
-          /* Tab 2: ADD ALL COUPONS (Bulk Batch Importer) */
           <div className="p-6 space-y-5 overflow-y-auto">
             <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/20 flex items-start gap-3">
               <Sparkles className="w-5 h-5 text-[#FF6600] shrink-0 mt-0.5" />
               <div className="text-xs">
                 <span className="font-bold text-white block">
-                  Bulk Coupon & Promo Code Activation
+                  Curated Partner Offer Import
                 </span>
                 <span className="text-slate-300 block mt-0.5 leading-relaxed">
-                  Clicking "Add All Coupons" will instantly deploy {BULK_CURATED_COUPONS.length} verified, editor-picked discounts and promo codes for Amazon, Daraz, Nike, Walmart, Sephora, Hostinger, eBay, and AliExpress directly to your website.
+                  Import {BULK_CURATED_COUPONS.length} partner offers with expiration dates, regional targeting, and explicit terms for Amazon, Daraz, Nike, Walmart, Sephora, Hostinger, eBay, and AliExpress.
                 </span>
               </div>
             </div>
 
-            {/* Preview List of all coupons to be added */}
             <div>
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2.5">
                 Curated Deals Included ({BULK_CURATED_COUPONS.length} Offers)
@@ -728,7 +769,9 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                     className="p-3 bg-[#121824] border border-slate-800 rounded-xl flex items-center justify-between gap-3 hover:border-slate-700 transition-colors"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-8 h-8 rounded-lg ${c.storeLogoBg} text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-xs`}>
+                      <div
+                        className={`w-8 h-8 rounded-lg ${c.storeLogoBg} text-white font-bold text-[10px] flex items-center justify-center shrink-0 shadow-xs`}
+                      >
                         {c.store.slice(0, 2).toUpperCase()}
                       </div>
                       <div className="min-w-0">
@@ -736,7 +779,7 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
                           {c.title}
                         </span>
                         <span className="text-[10px] text-slate-400 block truncate">
-                          {c.store} • {c.category}
+                          {c.store} • {c.category} • Exp {c.expiryDate}
                         </span>
                       </div>
                     </div>
@@ -756,11 +799,8 @@ export const CouponActionModal: React.FC<CouponActionModalProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons */}
             <div className="pt-2 flex items-center justify-between border-t border-slate-800">
-              <span className="text-xs text-slate-400">
-                Instant 1-click catalog deployment
-              </span>
+              <span className="text-xs text-slate-400">Ready for catalog import</span>
               <div className="flex items-center gap-3">
                 <button
                   type="button"

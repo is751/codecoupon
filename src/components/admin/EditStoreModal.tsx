@@ -5,14 +5,12 @@ import {
   Save, 
   Upload, 
   Image as ImageIcon, 
-  Link2, 
   Trash2, 
-  Star,
-  Sparkles,
   AlertCircle,
   Globe
 } from 'lucide-react';
 import { Category, StoreInfo } from '../../types/coupon';
+import { COUNTRIES, CountryCode } from '../../utils/countries';
 
 interface EditStoreModalProps {
   isOpen: boolean;
@@ -59,8 +57,7 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
   const [description, setDescription] = useState('');
   const [metaTitle, setMetaTitle] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
-  const [rating, setRating] = useState('4.8');
-  const [totalRatingsCount, setTotalRatingsCount] = useState<number>(500);
+  const [selectedCountries, setSelectedCountries] = useState<CountryCode[]>(['GLOBAL']);
   const [established, setEstablished] = useState('');
   const [highlightsStr, setHighlightsStr] = useState('');
 
@@ -71,6 +68,18 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const toggleCountry = (countryCode: CountryCode) => {
+    setSelectedCountries((prev) => {
+      if (countryCode === 'GLOBAL') return ['GLOBAL'];
+      const withoutGlobal = prev.filter((c) => c !== 'GLOBAL');
+      const exists = withoutGlobal.includes(countryCode);
+      const next = exists
+        ? withoutGlobal.filter((c) => c !== countryCode)
+        : [...withoutGlobal, countryCode];
+      return next.length > 0 ? next : ['GLOBAL'];
+    });
+  };
+
   // Sync state whenever the selected store changes
   useEffect(() => {
     if (store) {
@@ -78,12 +87,13 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
       setCategory(store.category || 'Tech & Electronics');
       setWebsite(store.website || '');
       setBestDiscount(store.bestDiscount || '20% OFF');
-      setCashbackRate(store.cashbackRate || 'Up to 5% Rewards');
+      setCashbackRate(store.cashbackRate || 'Direct Merchant Offers');
       setDescription(store.description || '');
       setMetaTitle(store.metaTitle || '');
       setMetaDescription(store.metaDescription || '');
-      setRating(store.rating ? String(store.rating) : '4.8');
-      setTotalRatingsCount(store.totalRatingsCount || 450);
+      setSelectedCountries(
+        store.countries && store.countries.length > 0 ? store.countries : ['GLOBAL']
+      );
       setEstablished(store.established || '2020');
       setHighlightsStr(store.highlights ? store.highlights.join('\n') : '');
 
@@ -147,11 +157,10 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
       description: description.trim(),
       metaTitle: metaTitle.trim() || undefined,
       metaDescription: metaDescription.trim() || undefined,
-      rating: parseFloat(rating) || 4.8,
-      totalRatingsCount: Number(totalRatingsCount) || store.totalRatingsCount || 500,
+      countries: selectedCountries,
       established: established.trim() || store.established,
-      bestDiscount: bestDiscount.trim() || '20% OFF',
-      cashbackRate: cashbackRate.trim() || 'Up to 5% Rewards',
+      bestDiscount: bestDiscount.trim() || 'Active Offers',
+      cashbackRate: cashbackRate.trim() || 'Direct Merchant Offers',
       highlights: parsedHighlights.length > 0 ? parsedHighlights : store.highlights,
     };
 
@@ -181,7 +190,7 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Update store branding, custom logo, rating, discount rates, and website URL.
+                Update store branding, custom logo, regions, discount rates, and website URL.
               </p>
             </div>
           </div>
@@ -242,7 +251,7 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
                 type="url"
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
-                placeholder="https://www.example.com"
+                placeholder="https://www.merchant-store.com"
                 required
                 className="w-full pl-9 pr-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#FF6600]"
               />
@@ -279,34 +288,31 @@ export const EditStoreModal: React.FC<EditStoreModalProps> = ({
             </div>
           </div>
 
-          {/* 4. Rating, Total Ratings & Year Established */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Rating (1.0 to 5.0)
+          {/* 4. Target Regions & Year Established */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+            <div className="sm:col-span-2 p-3.5 rounded-xl bg-[#121824] border border-slate-700/80 space-y-2">
+              <label className="text-xs font-bold text-slate-300 block">
+                Supported Countries / Regions
               </label>
-              <input
-                type="number"
-                step="0.1"
-                min="1.0"
-                max="5.0"
-                value={rating}
-                onChange={(e) => setRating(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-[#FF6600]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-300 mb-1.5">
-                Total Ratings Count
-              </label>
-              <input
-                type="number"
-                value={totalRatingsCount}
-                onChange={(e) => setTotalRatingsCount(Number(e.target.value))}
-                min="1"
-                className="w-full px-3.5 py-2.5 bg-[#121824] border border-slate-700/80 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-[#FF6600]"
-              />
+              <div className="flex flex-wrap gap-1.5">
+                {COUNTRIES.map((country) => {
+                  const isSelected = selectedCountries.includes(country.code);
+                  return (
+                    <button
+                      key={country.code}
+                      type="button"
+                      onClick={() => toggleCountry(country.code)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#FF6600] text-white border-[#FF6600]'
+                          : 'bg-[#0B0F17] text-slate-300 border-slate-700 hover:border-slate-500'
+                      }`}
+                    >
+                      {country.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div>

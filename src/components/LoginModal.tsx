@@ -99,7 +99,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               />
             </div>
             <span className="text-base font-bold font-heading text-white">
-              Code<span className="text-[#FF6600]">coupon</span>
+              Code<span className="text-[#FF6600]">Coupon</span>
             </span>
           </div>
 
@@ -131,7 +131,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
+                placeholder="admin@codecoupon.com"
                 className="w-full text-sm font-medium pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6600]/25 focus:border-[#FF6600]"
               />
             </div>

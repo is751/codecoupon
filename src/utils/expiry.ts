@@ -76,6 +76,53 @@ export function getExpiryInfo(expiryDate?: string): ExpiryInfo | null {
 }
 
 /**
+ * Returns true when a coupon is past its expiry date or flagged expired.
+ */
+export function isCouponExpired(expiryDate?: string, expiredFlag?: boolean): boolean {
+  if (expiredFlag) return true;
+  const info = getExpiryInfo(expiryDate);
+  return Boolean(info?.isExpired);
+}
+
+/**
+ * Returns structured expiry display copy for every coupon, including ongoing promotions.
+ */
+export function getEffectiveExpiryDisplay(expiryDate?: string, expiredFlag?: boolean): {
+  isExpired: boolean;
+  isUrgent: boolean;
+  hasFixedDate: boolean;
+  badgeText: string;
+  detailText: string;
+} {
+  const info = getExpiryInfo(expiryDate);
+  if (expiredFlag && (!info || !info.isExpired)) {
+    return {
+      isExpired: true,
+      isUrgent: false,
+      hasFixedDate: Boolean(info),
+      badgeText: 'Expired',
+      detailText: info ? `Ended ${info.formattedDate}` : 'Offer ended',
+    };
+  }
+  if (!info) {
+    return {
+      isExpired: false,
+      isUrgent: false,
+      hasFixedDate: false,
+      badgeText: 'Ongoing Offer',
+      detailText: 'Valid until merchant ends promotion',
+    };
+  }
+  return {
+    isExpired: info.isExpired,
+    isUrgent: info.isUrgent,
+    hasFixedDate: true,
+    badgeText: info.label,
+    detailText: info.isExpired ? `Ended ${info.formattedDate}` : `Expires ${info.formattedDate}`,
+  };
+}
+
+/**
  * Computes approximate hours remaining until end of the expiry date (23:59:59 local).
  */
 export function computeHoursLeftFromDate(expiryDate?: string): number | undefined {

@@ -1,4 +1,6 @@
-export type Category = 
+import { CountryCode } from '../utils/countries';
+
+export type Category =
   | 'All'
   | 'Tech & Electronics'
   | 'Fashion & Apparel'
@@ -13,19 +15,15 @@ export type Category =
 
 export type DealType = 'all' | 'code' | 'deal' | 'exclusive' | 'shipping';
 
-export type SortOption = 'custom' | 'popular' | 'discount' | 'newest' | 'expiring';
+export type SortOption = 'featured' | 'custom' | 'discount' | 'newest' | 'expiring';
 
-export interface CouponReview {
-  id: string;
-  couponId: string;
-  author: string;
-  rating: number; // 1 to 5
-  worked: boolean; // Worked for me vs Failed
-  comment: string;
-  date: string;
-  savingsAmount?: string; // e.g. "$35.00"
-  helpfulCount: number;
-}
+export type InfoPageKey =
+  | 'about'
+  | 'contact'
+  | 'privacy'
+  | 'terms'
+  | 'affiliate'
+  | 'verification';
 
 export interface Coupon {
   id: string;
@@ -34,7 +32,7 @@ export interface Coupon {
   storeLogoBg: string;
   storeLogoText: string;
   storeLogoUrl?: string;
-  logoUrl?: string; // Uploaded custom coupon or brand logo
+  logoUrl?: string;
   storeBrandColor?: string;
   category: Category;
   title: string;
@@ -47,24 +45,19 @@ export interface Coupon {
   storeUrl: string;
   verified: boolean;
   verifiedText: string;
-  successRate: number; // e.g. 96 (%)
-  usesCount: number;
+  isExpired?: boolean;
   expiryDate?: string; // Specific expiry date (YYYY-MM-DD)
-  expiryHoursLeft?: number; // for countdown & sorting
+  expiryHoursLeft?: number;
+  countries?: CountryCode[];
   minSpend?: string;
   terms: string[];
   exclusive?: boolean;
   featured?: boolean;
   trending?: boolean;
   editorPicked?: boolean;
-  upvotes: number;
-  downvotes: number;
-  userVote?: 'up' | 'down' | null;
   saved?: boolean;
   isCommunity?: boolean;
   tags?: string[];
-  reviews: CouponReview[];
-  averageRating: number;
   sortOrder?: number;
 }
 
@@ -74,14 +67,13 @@ export interface StoreInfo {
   category: Category;
   logoText: string;
   logoBg: string;
-  logoUrl?: string; // Uploaded custom logo data URL or image URL
+  logoUrl?: string;
   brandColor: string;
   website: string;
   description: string;
   metaTitle?: string;
   metaDescription?: string;
-  rating: number;
-  totalRatingsCount: number;
+  countries?: CountryCode[];
   established?: string;
   bestDiscount: string;
   cashbackRate?: string;
